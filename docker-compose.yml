@@ -1,0 +1,50 @@
+# docker-compose para controlbio-ponto
+# Sobe a aplicação Next.js + banco PostgreSQL.
+#
+#   docker compose up --build        # build + sobe tudo
+#   docker compose up -d db          # sobe só o banco (útil em dev local com `npm run dev`)
+#   docker compose down              # derruba (mantém o volume/dados)
+#   docker compose down -v           # derruba e APAGA os dados do banco
+
+services:
+  db:
+    # Versão pinada de propósito: `postgres:latest` pula de major sozinho
+    # (ex.: 18 mudou o layout do diretório de dados) e quebra volumes existentes.
+    image: postgres:18
+    container_name: controlbio-ponto-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-controlbio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-controlbio}
+      POSTGRES_DB: ${POSTGRES_DB:-controlbio_ponto}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # PG 18+ guarda os dados num subdiretório por major dentro de
+      # /var/lib/postgresql — por isso o mount é no diretório pai (não em /data).
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-controlbio} -d ${POSTGRES_DB:-controlbio_ponto}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+#  app:
+#    build:
+#      context: .
+#      dockerfile: Dockerfile
+#    container_name: controlbio-ponto-app
+#    restart: unless-stopped
+#    depends_on:
+#      db:
+#        condition: service_healthy
+#    environment:
+#      NODE_ENV: production
+#      # Host "db" = nome do serviço acima (resolução interna da rede do compose)
+#      DATABASE_URL: postgresql://${POSTGRES_USER:-controlbio}:${POSTGRES_PASSWORD:-controlbio}@db:5432/${POSTGRES_DB:-controlbio_ponto}?schema=public
+#    ports:
+#      - "${APP_PORT:-3000}:3000"
+
+volumes:
+  postgres_data:
