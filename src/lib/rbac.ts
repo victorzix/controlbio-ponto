@@ -28,13 +28,6 @@ const ALL: Permission[] = [...PERMISSIONS];
 
 export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   admin: ALL,
-  gestor: [
-    "ponto:registrar",
-    "ponto:ver_proprio",
-    "ponto:ver_equipe",
-    "ponto:ajustar",
-    "usuarios:ler",
-  ],
   funcionario: ["ponto:registrar", "ponto:ver_proprio"],
 };
 

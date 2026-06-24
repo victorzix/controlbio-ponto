@@ -6,7 +6,7 @@
 
 | Campo         | Valor              |
 | ------------- | ------------------ |
-| Versão        | 1.0                |
+| Versão        | 1.2                |
 | Atualizado em | 2026-06-23         |
 | Stack visual  | Tailwind CSS v4 · shadcn/ui (new-york) · lucide-react · motion |
 
@@ -115,11 +115,27 @@ referenciam sempre o **token semântico** (`bg-primary`, `text-muted-foreground`
 ## 6. Componentes (shadcn/ui)
 
 - **Origem:** estilo **new-york**. Componentes vivem em `src/components/ui/` e podem ser customizados.
-- **Em uso / previstos:** `button`, `input`, `label`, `card`, `form`, `sonner` (toasts). Adicionar mais
-  conforme as features (`table`, `dialog`, `dropdown-menu`, ...), sempre via `npx shadcn@latest add`.
+- **Em uso:** `button`, `input`, `label`, `card`, `sonner` (toasts), `table`, `badge`, `markdown` (próprio).
+- **Como adicionar componentes:** o ideal é `npx shadcn@latest add <componente>`. **Porém o CLI/registry
+  trava neste ambiente** — quando for um componente **puro** (só usa `cn`, sem dependência npm nova, ex.:
+  `table`, `badge`, `separator`), escreva o arquivo à mão no estilo new-york em vez de bloquear no CLI.
+  Componentes que exigem dep nova (radix: `dialog`, `select`, `dropdown-menu`, ...) ficam para quando der
+  para instalar — veja a alternativa de `<select>` nativo abaixo.
 - **Botões:** primário = `variant="default"` (verde). Destrutivo = `variant="destructive"`. Neutro =
   `variant="secondary"`/`"outline"`/`"ghost"`. Altura mínima `h-11` em ações principais no mobile (toque).
 - **Inputs:** sempre com `<Label>` associada. Erro: `aria-invalid` + mensagem em `text-destructive text-sm`.
+- **Select:** preferimos **`<select>` nativo** estilizado com os tokens (ótimo no mobile — usa o seletor
+  do SO — e sem dependência). O `select` do shadcn (radix) só quando houver necessidade real de
+  customização avançada.
+- **Tabelas:** `Table` do shadcn no desktop; no **mobile**, prefira lista de **cards** (uma coluna) em vez
+  de espremer a tabela. Padrão usado em `/usuarios`.
+- **Badge:** status/rótulos curtos. Convenção: ativo = `secondary`/`default`; inativo/neutro = `outline`;
+  erro/alerta = `destructive`.
+- **Rich text:** padrão **Markdown**. Edição via textarea + mini-toolbar (negrito/itálico/link/lista) +
+  preview; exibição via componente próprio `<Markdown>` (`components/ui/markdown.tsx`), que é **seguro por
+  construção** (monta nós React, sem `dangerouslySetInnerHTML`; links só com esquema `http(s)`/`mailto`).
+  Subset: negrito, itálico, código, links, listas, parágrafos. Não usamos editores WYSIWYG/libs externas.
+- **Formulários:** padrão `useActionState` + Server Action (sem react-hook-form). Erros por campo inline.
 - **Feedback:** usar `sonner` (toast) para sucesso/erro de ações; erro de formulário inline abaixo do campo.
 - **Ícones:** `lucide-react`, tamanho `size-4`/`size-5`, cor herdada (`text-current`/`text-muted-foreground`).
 

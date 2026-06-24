@@ -6,6 +6,9 @@ import {
   boolean,
   timestamp,
   index,
+  integer,
+  date,
+  text,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -16,8 +19,7 @@ import {
  * Aqui o role é apenas uma coluna enum no próprio usuário.
  */
 export const userRole = pgEnum("user_role", [
-  "admin", // acesso total
-  "gestor", // gerencia equipe / aprova ajustes de ponto
+  "admin", // acesso total (gerencia usuários, vê tudo)
   "funcionario", // registra o próprio ponto
 ]);
 
@@ -74,3 +76,33 @@ export const sessions = pgTable(
 
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
+
+/**
+ * Registros de ponto.
+ *
+ * Lançamento manual de tempo trabalhado por dia (não é relógio de batida):
+ * tempo trabalhado (em minutos), o dia e uma descrição em Markdown.
+ * Ver `docs/specs/003-registro-de-ponto/design.md` §2.
+ */
+export const registrosPonto = pgTable(
+  "registros_ponto",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // O dia trabalhado (sem hora) — string YYYY-MM-DD para evitar bug de fuso.
+    workDate: date("work_date", { mode: "string" }).notNull(),
+    // Total de minutos trabalhados (> 0, ≤ 1440). A UI converte para H:M.
+    workedMinutes: integer("worked_minutes").notNull(),
+    // Descrição em Markdown (subset seguro — ver renderer em components/ui/markdown.tsx).
+    description: text("description").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("registros_ponto_user_date_idx").on(t.userId, t.workDate)],
+);
+
+export type RegistroPonto = typeof registrosPonto.$inferSelect;
+export type NewRegistroPonto = typeof registrosPonto.$inferInsert;

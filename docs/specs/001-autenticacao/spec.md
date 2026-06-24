@@ -47,7 +47,6 @@ sabermos, com segurança, quem está do outro lado.** Por isso a autenticação 
 | Ator             | Descrição                                                                 |
 | ---------------- | ------------------------------------------------------------------------- |
 | Funcionário(a)   | Registra o próprio ponto. Acessa quase sempre pelo **celular**.           |
-| Gestor(a)        | Gerencia equipe e ajustes. Acessa pelo celular e pelo desktop.            |
 | Admin            | Acesso total. Existe desde o *seed* inicial para configurar o sistema.    |
 | Visitante anônimo| Quem ainda não autenticou. Só pode ver a tela de login.                   |
 

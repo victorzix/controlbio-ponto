@@ -15,6 +15,20 @@
       "when": 1782249723965,
       "tag": "0001_married_hannibal_king",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782259716272,
+      "tag": "0002_amazing_nick_fury",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1782260592356,
+      "tag": "0003_smart_agent_zero",
+      "breakpoints": true
     }
   ]
 }
