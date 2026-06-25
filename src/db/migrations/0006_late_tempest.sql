@@ -1,0 +1,1 @@
+ALTER TABLE "registros_ponto" ADD COLUMN "link" varchar(2048);

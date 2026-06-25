@@ -72,6 +72,7 @@ precisa ser explícito, auditável e restrito a quem é de direito.
 | RF-08 | Todas as telas devem ser **mobile first** e seguir o design system.                                | Must       |
 | RF-09 | Indicar visualmente o status (ativo/inativo) e o papel de cada usuário.                            | Should     |
 | RF-10 | Feedback claro de sucesso/erro nas ações (toast/mensagem).                                          | Should     |
+| RF-11 | Definir um **valor/hora opcional** por usuário (criar/editar, apenas admin) e exibi-lo na lista.    | Should     |
 
 ## 7. Regras de Negócio
 
@@ -86,6 +87,8 @@ precisa ser explícito, auditável e restrito a quem é de direito.
 - **RN-06:** Desativar (`active = false`) **não apaga** o usuário; reativar restaura o acesso.
 - **RN-07:** Desativação **revoga as sessões** do usuário (ele cai no próximo acesso/navegação).
 - **RN-08:** Escrita exige permissão de admin no **servidor** (não confiar só em esconder botões).
+- **RN-09:** O **valor/hora** é opcional e **não-negativo**; informado em reais no formulário e guardado
+  como **inteiro em centavos** (`hourly_rate_cents`). Vazio = sem valor.
 
 ## 8. Requisitos Não-Funcionais
 

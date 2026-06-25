@@ -1,16 +1,18 @@
 import { z } from "zod";
+import { normalizeUsernameInput } from "./username";
 
 /**
  * Validação e normalização das credenciais de login.
- * E-mail é tratado case-insensitive e sem espaços nas pontas (RN-07).
+ * O login é por **usuário** (primeiro nome), normalizado para minúsculas e sem
+ * acentos — qualquer combinação de maiúsculas/acentos resolve para o mesmo
+ * usuário (spec 004-login-por-nome, RN-02).
  */
 export const loginSchema = z.object({
-  email: z
+  username: z
     .string()
     .trim()
-    .toLowerCase()
-    .min(1, "Informe o e-mail.")
-    .email("Informe um e-mail válido."),
+    .transform(normalizeUsernameInput)
+    .pipe(z.string().min(1, "Informe o usuário.")),
   password: z.string().min(1, "Informe a senha."),
 });
 

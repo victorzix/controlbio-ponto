@@ -53,6 +53,25 @@ spec.md  ──►  plan.md  ──►  design.md  ──►  tasks.md  ──�
 - A seção "Telas / UI" do `design.md` de cada feature **referencia** o design system e descreve só o que é específico daquela tela.
 - Objetivo: o padrão visual é mantido por construção — qualquer pessoa (ou agente) consegue criar telas novas consistentes lendo um único documento.
 
+### 6. Estado — React Query + Zustand (obrigatório)
+
+Sempre que precisar de estado, use estas duas ferramentas — **sempre que possível e necessário**, não invente solução própria (nada de `useEffect` + `fetch` na mão, "context" global caseiro ou `useState` espalhado para estado compartilhado).
+
+- **Estado de servidor (dados que vêm do back) acessado no client → [React Query](https://tanstack.com/query) (`@tanstack/react-query`).** Toda busca/cache/mutação de dados feita **no client** passa por `useQuery`/`useMutation`. O provider já existe em `src/components/providers.tsx` (montado no root layout).
+  - **Exceção idiomática do App Router:** quando der para buscar no **servidor** (Server Component) ou mutar via **Server Action**, prefira isso — é o padrão do projeto e não precisa de React Query. O React Query entra quando o **client** é quem busca/sincroniza (paginação/infinite, refetch, polling, cache compartilhado entre componentes client, optimistic update).
+- **Estado global de client (UI/preferências) → [Zustand](https://github.com/pmndrs/zustand).** Stores em `src/lib/stores/`. Use `persist` quando a preferência deve sobreviver entre visitas (ex.: `useSidebarStore`). Estado **efêmero e local** a um componente continua em `useState` — Zustand é para o que é **compartilhado**.
+- Em SSR, cuidado com hidratação ao ler estado persistido: aplique o valor do `localStorage` só após montar (padrão usado em `app-sidebar.tsx`).
+
+### 7. Formulários — React Hook Form + Zod (obrigatório)
+
+**Todo formulário usa [React Hook Form](https://react-hook-form.com) com validação por [Zod](https://zod.dev)** (`@hookform/resolvers/zod`). Não controle formulário com `useState` espalhado nem dependa do reset automático da `action` do `<form>` (no React 19 isso **limpa os campos não-controlados** ao terminar a action — inclusive em erro de validação).
+
+- **Schema Zod é a fonte da verdade** da validação, compartilhado entre client e servidor. O client valida com `zodResolver(schema)` (erro inline, sem ida ao servidor); **o servidor revalida o mesmo schema** — nunca confie no client.
+- **Mutação continua via Server Action** (regra §6): o `handleSubmit(onValid)` chama a Server Action passando os dados já validados; a action revalida e retorna `{ ok }` ou `{ fieldErrors }/{ error }`, que viram `setError` no formulário. Não use `useActionState` para guardar valor de campo.
+- **Erros por campo** vêm de `formState.errors`; estado de envio, de `formState.isSubmitting`. Mantenha rótulos/`aria-invalid` associados.
+- Campo customizado (ex.: `markdown-editor`) integra via `<Controller>` (controlado por `value`/`onChange`).
+- Padrão de referência: `src/app/(app)/ponto/ponto-form.tsx`.
+
 ---
 
 ## Convenções de código

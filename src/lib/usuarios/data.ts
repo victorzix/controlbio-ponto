@@ -7,8 +7,10 @@ import type { UserRole } from "@/db/schema";
 export type UserListItem = {
   id: string;
   name: string;
-  email: string;
+  username: string;
+  email: string | null;
   role: UserRole;
+  hourlyRateCents: number | null;
   active: boolean;
   createdAt: Date;
 };
@@ -17,43 +19,45 @@ export type UserListItem = {
 export type UserEditData = {
   id: string;
   name: string;
-  email: string;
+  username: string;
+  email: string | null;
   role: UserRole;
+  hourlyRateCents: number | null;
   active: boolean;
 };
 
 /**
  * Lista todos os usuários ordenados por nome.
- * Se `q` for fornecido, filtra por nome ou e-mail (ILIKE).
+ * Se `q` for fornecido, filtra por nome, usuário (login) ou e-mail (ILIKE).
  */
 export async function listUsers(q?: string): Promise<UserListItem[]> {
+  const columns = {
+    id: users.id,
+    name: users.name,
+    username: users.username,
+    email: users.email,
+    role: users.role,
+    hourlyRateCents: users.hourlyRateCents,
+    active: users.active,
+    createdAt: users.createdAt,
+  };
+
   if (q && q.trim() !== "") {
     const term = `%${q.trim()}%`;
     return db
-      .select({
-        id: users.id,
-        name: users.name,
-        email: users.email,
-        role: users.role,
-        active: users.active,
-        createdAt: users.createdAt,
-      })
+      .select(columns)
       .from(users)
-      .where(or(ilike(users.name, term), ilike(users.email, term)))
+      .where(
+        or(
+          ilike(users.name, term),
+          ilike(users.username, term),
+          ilike(users.email, term),
+        ),
+      )
       .orderBy(asc(users.name));
   }
 
-  return db
-    .select({
-      id: users.id,
-      name: users.name,
-      email: users.email,
-      role: users.role,
-      active: users.active,
-      createdAt: users.createdAt,
-    })
-    .from(users)
-    .orderBy(asc(users.name));
+  return db.select(columns).from(users).orderBy(asc(users.name));
 }
 
 /**
@@ -65,8 +69,10 @@ export async function getUserById(id: string): Promise<UserEditData | null> {
     .select({
       id: users.id,
       name: users.name,
+      username: users.username,
       email: users.email,
       role: users.role,
+      hourlyRateCents: users.hourlyRateCents,
       active: users.active,
     })
     .from(users)

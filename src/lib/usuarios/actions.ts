@@ -1,74 +1,115 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { eq, ne, and } from "drizzle-orm";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { hashPassword, invalidateAllSessions } from "@/lib/auth";
 import { requirePermission } from "@/lib/auth/guard";
 import { createUserSchema, updateUserSchema } from "./validation";
+import { listUsers, type UserListItem } from "./data";
+
+/**
+ * Leitura da lista de usuários para o client (React Query). Guarda no servidor:
+ * exige `usuarios:ler`. Ver `CLAUDE.md` §6.
+ */
+export async function fetchUsers(q?: string): Promise<UserListItem[]> {
+  await requirePermission("usuarios:ler");
+  return listUsers(q);
+}
 
 export type ActionState = {
+  ok?: boolean;
   error?: string;
   fieldErrors?: Record<string, string>;
 };
+
+/** Extrai erros por campo de um ZodError (primeiro erro de cada campo). */
+function collectFieldErrors(
+  issues: { path: PropertyKey[]; message: string }[],
+): Record<string, string> {
+  const fieldErrors: Record<string, string> = {};
+  for (const issue of issues) {
+    const field = issue.path[0];
+    if (typeof field === "string" && !fieldErrors[field]) {
+      fieldErrors[field] = issue.message;
+    }
+  }
+  return fieldErrors;
+}
+
+/**
+ * Mapeia uma violação de constraint UNIQUE (condição de corrida) para o erro de
+ * campo correspondente. Retorna null se o erro não for de unicidade.
+ */
+function uniqueViolation(err: unknown): ActionState | null {
+  const message = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  if (!message.includes("unique") && !message.includes("duplicate")) return null;
+  if (message.includes("username")) {
+    return { fieldErrors: { username: "Já existe um usuário com este login." } };
+  }
+  if (message.includes("email")) {
+    return { fieldErrors: { email: "Já existe um usuário com este e-mail." } };
+  }
+  return { error: "Já existe um usuário com esses dados." };
+}
 
 /**
  * Cria um novo usuário.
  * Exige permissão "usuarios:criar" (apenas admin).
  */
-export async function createUser(
-  _prev: ActionState,
-  formData: FormData,
-): Promise<ActionState> {
+export async function createUser(input: unknown): Promise<ActionState> {
   await requirePermission("usuarios:criar");
 
-  const raw = {
-    name: formData.get("name"),
-    email: formData.get("email"),
-    role: formData.get("role"),
-    password: formData.get("password"),
-  };
-
-  const parsed = createUserSchema.safeParse(raw);
+  const parsed = createUserSchema.safeParse(input);
   if (!parsed.success) {
-    const fieldErrors: Record<string, string> = {};
-    for (const issue of parsed.error.issues) {
-      const field = issue.path[0];
-      if (typeof field === "string") {
-        fieldErrors[field] = issue.message;
-      }
-    }
-    return { fieldErrors };
+    return { fieldErrors: collectFieldErrors(parsed.error.issues) };
   }
 
-  const { name, email, role, password } = parsed.data;
+  const { name, username, email, role, password, hourlyRate } = parsed.data;
+  const emailValue = email && email.length > 0 ? email : null;
+  const hourlyRateCents =
+    hourlyRate != null ? Math.round(hourlyRate * 100) : null;
 
-  // Checa duplicidade de e-mail
-  const existing = await db
+  // Checa duplicidade de username (login) — RN-04
+  const existingUsername = await db
     .select({ id: users.id })
     .from(users)
-    .where(eq(users.email, email))
+    .where(eq(users.username, username))
     .limit(1);
 
-  if (existing.length > 0) {
-    return { fieldErrors: { email: "Já existe um usuário com este e-mail." } };
+  if (existingUsername.length > 0) {
+    return { fieldErrors: { username: "Já existe um usuário com este login." } };
+  }
+
+  // Checa duplicidade de e-mail apenas quando informado
+  if (emailValue) {
+    const existingEmail = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, emailValue))
+      .limit(1);
+
+    if (existingEmail.length > 0) {
+      return { fieldErrors: { email: "Já existe um usuário com este e-mail." } };
+    }
   }
 
   const passwordHash = await hashPassword(password);
 
   try {
-    await db.insert(users).values({ name, email, role, passwordHash });
+    await db.insert(users).values({
+      name,
+      username,
+      email: emailValue,
+      role,
+      hourlyRateCents,
+      passwordHash,
+    });
   } catch (err) {
-    // Trata violação de unique (condição de corrida)
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes("unique") || message.includes("duplicate")) {
-      return { fieldErrors: { email: "Já existe um usuário com este e-mail." } };
-    }
-    return { error: "Erro ao criar usuário. Tente novamente." };
+    return uniqueViolation(err) ?? { error: "Erro ao criar usuário. Tente novamente." };
   }
 
-  redirect("/usuarios?ok=criado");
+  return { ok: true };
 }
 
 /**
@@ -77,50 +118,56 @@ export async function createUser(
  * RN-05: não altera o papel se o usuário estiver editando a própria conta.
  */
 export async function updateUser(
-  _prev: ActionState,
-  formData: FormData,
+  id: string,
+  input: unknown,
 ): Promise<ActionState> {
   const currentUser = await requirePermission("usuarios:editar");
 
-  const id = formData.get("id");
   if (typeof id !== "string" || !id) {
     return { error: "ID de usuário inválido." };
   }
 
-  const raw = {
-    name: formData.get("name"),
-    email: formData.get("email"),
-    role: formData.get("role"),
-    password: formData.get("password"),
-  };
-
-  const parsed = updateUserSchema.safeParse(raw);
+  const parsed = updateUserSchema.safeParse(input);
   if (!parsed.success) {
-    const fieldErrors: Record<string, string> = {};
-    for (const issue of parsed.error.issues) {
-      const field = issue.path[0];
-      if (typeof field === "string") {
-        fieldErrors[field] = issue.message;
-      }
-    }
-    return { fieldErrors };
+    return { fieldErrors: collectFieldErrors(parsed.error.issues) };
   }
 
-  const { name, email, role, password } = parsed.data;
+  const { name, username, email, role, password, hourlyRate } = parsed.data;
+  const emailValue = email && email.length > 0 ? email : null;
+  const hourlyRateCents =
+    hourlyRate != null ? Math.round(hourlyRate * 100) : null;
 
-  // Checa duplicidade de e-mail excluindo o próprio usuário
-  const existing = await db
+  // Checa duplicidade de username excluindo o próprio usuário (RN-04)
+  const existingUsername = await db
     .select({ id: users.id })
     .from(users)
-    .where(and(eq(users.email, email), ne(users.id, id)))
+    .where(and(eq(users.username, username), ne(users.id, id)))
     .limit(1);
 
-  if (existing.length > 0) {
-    return { fieldErrors: { email: "Já existe um usuário com este e-mail." } };
+  if (existingUsername.length > 0) {
+    return { fieldErrors: { username: "Já existe um usuário com este login." } };
+  }
+
+  // Checa duplicidade de e-mail (quando informado) excluindo o próprio usuário
+  if (emailValue) {
+    const existingEmail = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.email, emailValue), ne(users.id, id)))
+      .limit(1);
+
+    if (existingEmail.length > 0) {
+      return { fieldErrors: { email: "Já existe um usuário com este e-mail." } };
+    }
   }
 
   // Monta os campos a atualizar
-  const updateData: Partial<typeof users.$inferInsert> = { name, email };
+  const updateData: Partial<typeof users.$inferInsert> = {
+    name,
+    username,
+    email: emailValue,
+    hourlyRateCents,
+  };
 
   // RN-05: não altera o papel se for a própria conta
   if (id !== currentUser.id) {
@@ -135,14 +182,10 @@ export async function updateUser(
   try {
     await db.update(users).set(updateData).where(eq(users.id, id));
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes("unique") || message.includes("duplicate")) {
-      return { fieldErrors: { email: "Já existe um usuário com este e-mail." } };
-    }
-    return { error: "Erro ao salvar usuário. Tente novamente." };
+    return uniqueViolation(err) ?? { error: "Erro ao salvar usuário. Tente novamente." };
   }
 
-  redirect("/usuarios?ok=salvo");
+  return { ok: true };
 }
 
 /**
@@ -167,6 +210,5 @@ export async function setUserActive(
   if (!active) {
     await invalidateAllSessions(id);
   }
-
-  redirect("/usuarios?ok=status");
+  // Sem redirect: o client invalida a query da lista (React Query) e atualiza.
 }

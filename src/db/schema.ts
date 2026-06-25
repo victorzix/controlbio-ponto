@@ -26,9 +26,15 @@ export const userRole = pgEnum("user_role", [
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: varchar("name", { length: 120 }).notNull(),
-  email: varchar("email", { length: 255 }).notNull().unique(),
+  // Login do usuário: primeiro nome normalizado (minúsculo, sem acento, a-z0-9).
+  // É o identificador de autenticação. Ver `docs/specs/004-login-por-nome`.
+  username: varchar("username", { length: 120 }).notNull().unique(),
+  // E-mail é opcional e NÃO é usado para login (spec 004). Mantém unicidade.
+  email: varchar("email", { length: 255 }).unique(),
   passwordHash: varchar("password_hash", { length: 255 }).notNull(),
   role: userRole("role").notNull().default("funcionario"),
+  // Valor da hora de trabalho, em centavos (ex.: R$ 50,00 = 5000). Opcional.
+  hourlyRateCents: integer("hourly_rate_cents"),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
@@ -91,12 +97,16 @@ export const registrosPonto = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Título curto do registro (ex.: "Atendimento cliente X").
+    title: varchar("title", { length: 120 }).notNull(),
     // O dia trabalhado (sem hora) — string YYYY-MM-DD para evitar bug de fuso.
     workDate: date("work_date", { mode: "string" }).notNull(),
     // Total de minutos trabalhados (> 0, ≤ 1440). A UI converte para H:M.
     workedMinutes: integer("worked_minutes").notNull(),
     // Descrição em Markdown (subset seguro — ver renderer em components/ui/markdown.tsx).
     description: text("description").notNull(),
+    // Link opcional da tarefa (ex.: ClickUp). Quando presente, é http(s).
+    link: varchar("link", { length: 2048 }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

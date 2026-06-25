@@ -16,7 +16,8 @@ export const SESSION_MAX_AGE =
 export type SessionUser = {
   id: string;
   name: string;
-  email: string;
+  username: string;
+  email: string | null;
   role: UserRole;
 };
 
@@ -55,6 +56,7 @@ export async function validateSession(token: string): Promise<SessionUser | null
     .select({
       id: users.id,
       name: users.name,
+      username: users.username,
       email: users.email,
       role: users.role,
       active: users.active,
@@ -75,7 +77,13 @@ export async function validateSession(token: string): Promise<SessionUser | null
 
   if (!row.active) return null;
 
-  return { id: row.id, name: row.name, email: row.email, role: row.role };
+  return {
+    id: row.id,
+    name: row.name,
+    username: row.username,
+    email: row.email,
+    role: row.role,
+  };
 }
 
 /** Revoga uma sessão específica (logout). RN-05. */

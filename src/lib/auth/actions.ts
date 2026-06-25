@@ -14,10 +14,10 @@ import {
 } from "./session";
 import { loginSchema } from "./validation";
 
-/** Mensagem genérica — não revela se o e-mail existe (RN-03). */
-const GENERIC_ERROR = "E-mail ou senha inválidos.";
+/** Mensagem genérica — não revela se o usuário existe (RN-07). */
+const GENERIC_ERROR = "Usuário ou senha inválidos.";
 
-export type LoginState = { error?: string };
+export type LoginState = { ok?: boolean; error?: string };
 
 /**
  * Quando o e-mail não existe, ainda rodamos uma verificação de hash "dummy"
@@ -32,31 +32,23 @@ function getDummyHash(): Promise<string> {
   return dummyHashPromise;
 }
 
-/** Server Action de login. Valida, autentica, cria sessão e redireciona. */
-export async function loginAction(
-  _prev: LoginState,
-  formData: FormData,
-): Promise<LoginState> {
-  const parsed = loginSchema.safeParse({
-    email: formData.get("email"),
-    password: formData.get("password"),
-  });
+/**
+ * Server Action de login. Valida (revalida o schema do client), autentica e
+ * cria a sessão (cookie). Em sucesso retorna `{ ok: true }` — a navegação para
+ * o destino é feita no client (ver `login-form.tsx`). Nunca confia no client.
+ */
+export async function loginAction(input: unknown): Promise<LoginState> {
+  const parsed = loginSchema.safeParse(input);
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? GENERIC_ERROR };
   }
 
-  const { email, password } = parsed.data;
-
-  const redirectToRaw = formData.get("redirectTo");
-  const redirectTo =
-    typeof redirectToRaw === "string" && redirectToRaw.startsWith("/")
-      ? redirectToRaw
-      : "/";
+  const { username, password } = parsed.data;
 
   const found = await db
     .select()
     .from(users)
-    .where(eq(users.email, email))
+    .where(eq(users.username, username))
     .limit(1);
   const user = found[0];
 
@@ -71,7 +63,10 @@ export async function loginAction(
   }
 
   const hdrs = await headers();
-  const { token } = await createSession(user.id, hdrs.get("user-agent") ?? undefined);
+  const { token } = await createSession(
+    user.id,
+    hdrs.get("user-agent") ?? undefined,
+  );
 
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE_NAME, token, {
@@ -82,7 +77,7 @@ export async function loginAction(
     maxAge: SESSION_MAX_AGE,
   });
 
-  redirect(redirectTo);
+  return { ok: true };
 }
 
 /** Server Action de logout. Revoga a sessão no servidor e limpa o cookie. */

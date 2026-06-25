@@ -2,26 +2,36 @@ import { describe, it, expect } from "vitest";
 import { loginSchema } from "./validation";
 
 describe("loginSchema", () => {
-  it("normaliza o e-mail (trim + lowercase)", () => {
+  it("normaliza o usuário (trim + minúsculas + sem acento)", () => {
     const result = loginSchema.safeParse({
-      email: "  ADM@Controlbio.com.BR  ",
+      username: "  Andréy  ",
       password: "x",
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.email).toBe("adm@controlbio.com.br");
+      expect(result.data.username).toBe("andrey");
     }
   });
 
-  it("rejeita e-mail inválido", () => {
+  it("resolve maiúsculas para o mesmo usuário", () => {
+    const a = loginSchema.safeParse({ username: "ANDREY", password: "x" });
+    const b = loginSchema.safeParse({ username: "Andrey", password: "x" });
+    expect(a.success && b.success).toBe(true);
+    if (a.success && b.success) {
+      expect(a.data.username).toBe("andrey");
+      expect(b.data.username).toBe("andrey");
+    }
+  });
+
+  it("rejeita usuário vazio após normalizar", () => {
     expect(
-      loginSchema.safeParse({ email: "nao-email", password: "x" }).success,
+      loginSchema.safeParse({ username: "  ---  ", password: "x" }).success,
     ).toBe(false);
   });
 
   it("exige a senha", () => {
     expect(
-      loginSchema.safeParse({ email: "a@b.com", password: "" }).success,
+      loginSchema.safeParse({ username: "andrey", password: "" }).success,
     ).toBe(false);
   });
 });

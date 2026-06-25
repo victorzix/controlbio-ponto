@@ -6,8 +6,10 @@ import { Markdown } from "@/components/ui/markdown";
 import { cn } from "@/lib/utils";
 
 type Props = {
-  name: string;
-  defaultValue?: string;
+  /** Controlado: valor atual e callback de mudança (integra com RHF Controller). */
+  value: string;
+  onChange: (value: string) => void;
+  id?: string;
   ariaInvalid?: boolean;
   ariaDescribedby?: string;
 };
@@ -16,17 +18,17 @@ const TOOL_BTN =
   "inline-flex h-9 w-9 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground";
 
 /**
- * Editor de Markdown: textarea + mini-toolbar (negrito/itálico/link/lista) e
- * abas Escrever/Visualizar. O preview usa o mesmo renderer seguro `<Markdown>`.
- * O valor é submetido pelo `name` (textarea fica sempre montada).
+ * Editor de Markdown **controlado**: textarea + mini-toolbar (negrito/itálico/
+ * link/lista) e abas Escrever/Visualizar. O preview usa o mesmo renderer seguro
+ * `<Markdown>`. O valor é gerenciado pelo pai (RHF via `<Controller>`).
  */
 export function MarkdownEditor({
-  name,
-  defaultValue = "",
+  value,
+  onChange,
+  id = "description",
   ariaInvalid,
   ariaDescribedby,
 }: Props) {
-  const [value, setValue] = React.useState(defaultValue);
   const [tab, setTab] = React.useState<"write" | "preview">("write");
   const ref = React.useRef<HTMLTextAreaElement>(null);
 
@@ -35,7 +37,7 @@ export function MarkdownEditor({
     if (!el) return;
     const { selectionStart: s, selectionEnd: e } = el;
     const selected = value.slice(s, e) || placeholder;
-    setValue(value.slice(0, s) + before + selected + after + value.slice(e));
+    onChange(value.slice(0, s) + before + selected + after + value.slice(e));
     requestAnimationFrame(() => {
       el.focus();
       el.setSelectionRange(s + before.length, s + before.length + selected.length);
@@ -47,7 +49,7 @@ export function MarkdownEditor({
     if (!el) return;
     const s = el.selectionStart;
     const lineStart = value.lastIndexOf("\n", s - 1) + 1;
-    setValue(value.slice(0, lineStart) + prefix + value.slice(lineStart));
+    onChange(value.slice(0, lineStart) + prefix + value.slice(lineStart));
     requestAnimationFrame(() => {
       el.focus();
       el.setSelectionRange(s + prefix.length, s + prefix.length);
@@ -131,10 +133,9 @@ export function MarkdownEditor({
 
       <textarea
         ref={ref}
-        id={name}
-        name={name}
+        id={id}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => onChange(e.target.value)}
         rows={6}
         aria-invalid={ariaInvalid || undefined}
         aria-describedby={ariaDescribedby}

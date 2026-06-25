@@ -6,8 +6,8 @@
 
 | Campo         | Valor              |
 | ------------- | ------------------ |
-| Versão        | 1.2                |
-| Atualizado em | 2026-06-23         |
+| Versão        | 1.7                |
+| Atualizado em | 2026-06-25         |
 | Stack visual  | Tailwind CSS v4 · shadcn/ui (new-york) · lucide-react · motion |
 
 ---
@@ -63,6 +63,14 @@ referenciam sempre o **token semântico** (`bg-primary`, `text-muted-foreground`
 | `--input`                  | `oklch(0.91 0.01 160)`       | `#E2E7E5` | Borda de inputs |
 | `--ring`                   | `oklch(0.60 0.128 163)`      | `#159A6B` | Anel de foco (verde da marca) |
 | `--radius`                 | `0.625rem` (10px)            | —         | Raio base |
+| `--sidebar`                | `oklch(0.98 0.008 162)`      | `#F7FAF8` | Fundo da sidebar |
+| `--sidebar-foreground`     | `oklch(0.21 0.02 165)`       | `#1E2A25` | Texto da sidebar |
+| `--sidebar-primary`        | `oklch(0.60 0.128 163)`      | `#159A6B` | Realce/marca na sidebar |
+| `--sidebar-primary-foreground` | `oklch(0.985 0.01 160)`  | `#FAFEFC` | Texto sobre sidebar-primary |
+| `--sidebar-accent`         | `oklch(0.95 0.03 162)`       | `#E6F3EC` | Item ativo / hover |
+| `--sidebar-accent-foreground` | `oklch(0.27 0.02 165)`    | `#2C3B35` | Texto do item ativo |
+| `--sidebar-border`         | `oklch(0.91 0.01 160)`       | `#E2E7E5` | Bordas da sidebar |
+| `--sidebar-ring`           | `oklch(0.60 0.128 163)`      | `#159A6B` | Foco na sidebar |
 
 ### Tema escuro (`.dark`)
 
@@ -87,10 +95,19 @@ referenciam sempre o **token semântico** (`bg-primary`, `text-muted-foreground`
 | `--border`                 | `oklch(1 0 0 / 10%)`         | —         |
 | `--input`                  | `oklch(1 0 0 / 15%)`         | —         |
 | `--ring`                   | `oklch(0.70 0.13 163)`       | `#2FBE86` |
+| `--sidebar`                | `oklch(0.19 0.02 165)`       | `#1A2620` |
+| `--sidebar-foreground`     | `oklch(0.97 0.01 160)`       | `#F2F6F4` |
+| `--sidebar-primary`        | `oklch(0.70 0.13 163)`       | `#2FBE86` |
+| `--sidebar-primary-foreground` | `oklch(0.18 0.02 165)`   | `#18231E` |
+| `--sidebar-accent`         | `oklch(0.30 0.03 163)`       | `#2E4138` |
+| `--sidebar-accent-foreground` | `oklch(0.97 0.01 160)`    | `#F2F6F4` |
+| `--sidebar-border`         | `oklch(1 0 0 / 10%)`         | —         |
+| `--sidebar-ring`           | `oklch(0.70 0.13 163)`       | `#2FBE86` |
 
-> **Charts/Sidebar:** quando entrarem gráficos ou sidebar, usar os tokens `--chart-1..5` e
-> `--sidebar-*` que o shadcn gera, mantendo o verde como `--chart-1`/`--sidebar-primary`. Documentar
-> aqui ao adotar.
+> **Sidebar adotada (v1.3):** os tokens `--sidebar-*` acima já estão no `globals.css` e mapeados no
+> `@theme` (utilities `bg-sidebar`, `text-sidebar-foreground`, `bg-sidebar-accent`, `border-sidebar-border`,
+> ...). Ver §9. **Charts:** quando entrarem gráficos, usar `--chart-1..5` (verde como `--chart-1`) e
+> documentar aqui ao adotar.
 
 ## 4. Tipografia
 
@@ -115,7 +132,9 @@ referenciam sempre o **token semântico** (`bg-primary`, `text-muted-foreground`
 ## 6. Componentes (shadcn/ui)
 
 - **Origem:** estilo **new-york**. Componentes vivem em `src/components/ui/` e podem ser customizados.
-- **Em uso:** `button`, `input`, `label`, `card`, `sonner` (toasts), `table`, `badge`, `markdown` (próprio).
+- **Em uso:** `button`, `input`, `label`, `card`, `sonner` (toasts), `table`, `badge`, `markdown` (próprio),
+  `modal` (próprio), `calendar` (react-day-picker), `date-field` (próprio), `date-range-field` (próprio),
+  `currency-input` (próprio).
 - **Como adicionar componentes:** o ideal é `npx shadcn@latest add <componente>`. **Porém o CLI/registry
   trava neste ambiente** — quando for um componente **puro** (só usa `cn`, sem dependência npm nova, ex.:
   `table`, `badge`, `separator`), escreva o arquivo à mão no estilo new-york em vez de bloquear no CLI.
@@ -127,6 +146,30 @@ referenciam sempre o **token semântico** (`bg-primary`, `text-muted-foreground`
 - **Select:** preferimos **`<select>` nativo** estilizado com os tokens (ótimo no mobile — usa o seletor
   do SO — e sem dependência). O `select` do shadcn (radix) só quando houver necessidade real de
   customização avançada.
+- **Modal/Diálogo:** componente **próprio** `src/components/ui/modal.tsx`, feito com `motion` (sem radix —
+  o registry trava; ver acima). No **mobile** é um **bottom sheet** que sobe (`items-end`, cantos
+  arredondados no topo); a partir de `sm:` fica **centralizado** (`max-w-lg`). Fecha no ✕, no backdrop e
+  no **Esc**; trava o scroll do body, faz **trap de foco** e **devolve o foco** ao fechar; conteúdo
+  montado só enquanto aberto (cada abertura começa limpa). **Use para formulários de criação/edição
+  curtos** em vez de uma página nova — padrão em **/ponto** ("Novo registro"). Mutação continua via
+  **Server Action**; no sucesso o cliente fecha o modal e dá `router.refresh()` (ver `CLAUDE.md` §6).
+- **Data:** componente `date-field` (`src/components/ui/date-field.tsx`) — botão com a data **por extenso**
+  que abre um `calendar` (`src/components/ui/calendar.tsx`, **react-day-picker** em pt-BR, tematizado pelos
+  tokens via CSS vars do rdp em `globals.css`; título centralizado, setas ← → nas pontas, dia selecionado
+  em quadrado verde). react-day-picker é lib **externa** (não-radix), ok de usar. O calendário é um
+  **popover flutuante** renderizado em **portal** no `body` com posição `fixed` ancorada no campo (z-index
+  acima do modal) — assim fica por cima e **não** é cortado pelo overflow do modal nem empurra os campos;
+  reposiciona ao rolar/redimensionar e fecha ao escolher/Esc/clicar fora. Controlado via RHF
+  `<Controller>`. Não use `<input type="date">` cru.
+- **Valor em R$:** componente `currency-input` (`src/components/ui/currency-input.tsx`) — prefixo "R$" e
+  **vírgula automática** (digita só números, centavos preenchem da direita: `5000` → `50,00`). Controlado,
+  guarda o valor em **reais** (número); use via RHF `<Controller>`. Usado no valor/hora do usuário.
+- **Intervalo de datas:** `date-range-field` (`src/components/ui/date-range-field.tsx`) — botão
+  "DD/MM – DD/MM" que abre o `calendar` em **modo range** (mesmo popover via portal do `date-field`).
+- **Segmented control (abas curtas):** para alternar entre poucas opções (ex.: período Semana/Mês/Intervalo),
+  use um grupo de pílulas: container `bg-muted rounded-lg p-1` e a opção ativa `bg-background shadow-sm`
+  (inativa `text-muted-foreground`), com `role="tablist"`/`role="tab"`. Mais bonito que `<select>` para
+  2–4 opções. Padrão no filtro de `/ponto`.
 - **Tabelas:** `Table` do shadcn no desktop; no **mobile**, prefira lista de **cards** (uma coluna) em vez
   de espremer a tabela. Padrão usado em `/usuarios`.
 - **Badge:** status/rótulos curtos. Convenção: ativo = `secondary`/`default`; inativo/neutro = `outline`;
@@ -156,7 +199,37 @@ referenciam sempre o **token semântico** (`bg-primary`, `text-muted-foreground`
 - Sem scroll horizontal. Tabelas largas: scroll interno ou colapso em cards no mobile.
 - Testar a ~360px antes de dar a tela como pronta.
 
-## 9. Como evoluir este documento
+## 9. Navegação (sidebar)
+
+A navegação da área interna é uma **sidebar** (`src/components/app-sidebar.tsx`), montada à mão
+(compondo primitivos + `motion`) em vez do componente pesado do shadcn — que depende de radix e o
+registry trava neste ambiente (ver §6).
+
+- **Mobile first.** No celular é uma **barra fixa no topo** (`h-14`, `sticky`, `backdrop-blur`) com
+  botão **☰** que abre a sidebar como **drawer** deslizante da esquerda, com overlay escuro
+  (`bg-black/50`). A partir de `md:` a sidebar é **fixa** à esquerda (`w-64`), e o conteúdo fica ao lado.
+- **Recolhível (desktop).** Um botão no topo da sidebar (`PanelLeftClose`/`PanelLeftOpen`) a recolhe
+  para um **rail de ícones** (`w-16`): o texto dos itens, da marca e o nome do usuário **esmaece**
+  (`opacity`), enquanto os ícones ficam **fixos** na mesma posição (`px-3`) e ganham **tooltip nativo**
+  (atributo `title`). Para a animação ficar **fluida**, anima-se só a **largura**
+  (`transition-[width] duration-300 ease-in-out`) com a estrutura interna estável e `overflow-hidden`
+  recortando os rótulos — nada de montar/desmontar conteúdo nem trocar alinhamento no meio da transição
+  (isso causa "piscada"/"pulo"). O estado fica em **Zustand persistido** (`useSidebarStore`,
+  `src/lib/stores/sidebar.ts`) — lembra a preferência entre visitas. Ler o valor com
+  `useSyncExternalStore` (snapshot de servidor `false`) para não divergir do HTML do servidor.
+- **Cores.** Usa os tokens `--sidebar-*` (§3): fundo `bg-sidebar`, texto `text-sidebar-foreground`,
+  **item ativo/hover** em `bg-sidebar-accent` / `text-sidebar-accent-foreground`, divisórias
+  `border-sidebar-border`. Item inativo usa `text-sidebar-foreground/70`.
+- **Item ativo.** Determinado pela rota atual (`usePathname`): exato para `/`, `startsWith` para as
+  demais. Marca-se com `aria-current="page"`.
+- **Toque & a11y.** Itens e botões com alvo ≥ 44px (`min-h-[44px]`, ícones em `size-11`). O drawer é
+  `role="dialog"`/`aria-modal`, fecha ao **navegar**, ao tocar no overlay, no **✕** e com **Esc**;
+  trava o scroll do body enquanto aberto.
+- **Animação (`motion`).** Drawer entra/sai com `x: -100% → 0` (overlay com fade), `~250ms ease-out`,
+  via `AnimatePresence`. Respeita `prefers-reduced-motion` (cai para fade simples) — ver §7.
+- **Rodapé.** Nome do usuário (truncado) + botão **Sair** (`logoutAction`, `variant="ghost"`).
+
+## 10. Como evoluir este documento
 
 1. Tomou uma decisão visual nova (cor, token, padrão, animação)? **Documente aqui** na seção certa e
    bump a versão/data no topo.

@@ -1,9 +1,17 @@
+import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
+import { can } from "@/lib/rbac";
 
-/** Home da área interna (placeholder). As telas de ponto chegam nas próximas features. */
+/**
+ * Home da área interna — só faz sentido para **admin**. Funcionário não tem
+ * "início": é levado direto ao seu ponto.
+ */
 export default async function HomePage() {
   const user = await getCurrentUser();
-  const firstName = user?.name?.split(" ")[0] ?? "";
+  if (!user) redirect("/login");
+  if (!can(user.role, "usuarios:ler")) redirect("/ponto");
+
+  const firstName = user.name.split(" ")[0] ?? "";
 
   return (
     <div className="space-y-2">
@@ -11,8 +19,7 @@ export default async function HomePage() {
         Olá, {firstName} 👋
       </h1>
       <p className="text-muted-foreground">
-        Você está autenticado. As telas de registro de ponto chegam nas próximas
-        features.
+        Use o menu para gerenciar usuários e acompanhar os registros de ponto.
       </p>
     </div>
   );

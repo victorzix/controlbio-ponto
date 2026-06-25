@@ -13,6 +13,8 @@ export const PERMISSIONS = [
   // Ponto
   "ponto:registrar", // bater o próprio ponto
   "ponto:ver_proprio", // ver os próprios registros
+  "ponto:editar", // editar o próprio registro
+  "ponto:excluir", // excluir o próprio registro
   "ponto:ver_equipe", // ver registros da equipe
   "ponto:ajustar", // solicitar/aprovar ajustes de ponto
   // Usuários
@@ -28,7 +30,12 @@ const ALL: Permission[] = [...PERMISSIONS];
 
 export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   admin: ALL,
-  funcionario: ["ponto:registrar", "ponto:ver_proprio"],
+  funcionario: [
+    "ponto:registrar",
+    "ponto:ver_proprio",
+    "ponto:editar",
+    "ponto:excluir",
+  ],
 };
 
 /** Retorna true se o papel possui a permissão. */

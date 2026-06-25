@@ -32,8 +32,12 @@ Leitura nas páginas (Server Components) via `data.ts`; escrita via Server Actio
 
 ## 2. Modelo de Dados
 
-**Sem mudança de schema.** Reusa `users` (`id`, `name`, `email`, `passwordHash`, `role`, `active`,
-`createdAt`, `updatedAt`). E-mail já é `unique`. `role` é o enum `user_role` (`admin`/`funcionario`).
+Reusa `users` (`id`, `name`, `username`, `email`, `passwordHash`, `role`, `active`, `createdAt`,
+`updatedAt`). `role` é o enum `user_role` (`admin`/`funcionario`).
+
+> **Atualizações:** o login passou a ser por `username` (spec 004) e o e-mail virou opcional. Em
+> 2026-06-25 foi adicionada a coluna **`hourly_rate_cents`** (`integer`, nullable) — o **valor/hora** do
+> usuário em centavos (form em reais → centavos na action). Migration aditiva (`0007`).
 
 ## 3. Interfaces (servidor)
 
@@ -45,26 +49,30 @@ requirePermission(p: Permission): Promise<SessionUser> // requireUser + redirect
 
 ### `lib/usuarios/data.ts`
 ```ts
-listUsers(q?: string): Promise<UserListItem[]> // ordena por name; filtra name/email ILIKE %q%
-getUserById(id: string): Promise<User | null>
-// UserListItem = { id, name, email, role, active, createdAt } (NUNCA passwordHash)
+listUsers(q?: string): Promise<UserListItem[]> // ordena por name; filtra name/username/email ILIKE %q%
+getUserById(id: string): Promise<UserEditData | null>
+// UserListItem = { id, name, username, email, role, hourlyRateCents, active, createdAt } (NUNCA passwordHash)
 ```
 
 ### `lib/usuarios/actions.ts` (todas começam com `requirePermission`)
 ```ts
-type ActionState = { error?: string; fieldErrors?: Record<string,string> }
-createUser(prev, formData): Promise<ActionState>   // requirePermission("usuarios:criar")
-updateUser(prev, formData): Promise<ActionState>   // requirePermission("usuarios:editar")
-setUserActive(id: string, active: boolean): Promise<void> // requirePermission("usuarios:desativar")
+type ActionState = { ok?: boolean; error?: string; fieldErrors?: Record<string,string> }
+fetchUsers(q?): Promise<UserListItem[]>            // requirePermission("usuarios:ler") — leitura p/ React Query
+createUser(input): Promise<ActionState>            // requirePermission("usuarios:criar")
+updateUser(id, input): Promise<ActionState>        // requirePermission("usuarios:editar")
+setUserActive(id, active): Promise<void>           // requirePermission("usuarios:desativar")
 ```
-- `createUser`: valida (zod), normaliza e-mail, checa duplicidade, `hashPassword`, insere. Sucesso →
-  `redirect("/usuarios")`.
-- `updateUser`: valida, checa duplicidade (excluindo o próprio id), aplica `name/email/role`; se senha
-  preenchida (≥8) atualiza o hash. **RN-05:** se `id === currentUser.id`, ignora mudança de `role`
-  (ou rejeita) e nunca permite desativar a si mesmo. Sucesso → `redirect("/usuarios")`.
-- `setUserActive`: **RN-05** bloqueia desativar a própria conta; ao desativar, chama
-  `invalidateAllSessions(id)` (RF-05). Opcional (questão §10): impedir desativar o último admin ativo.
-- Violação de unicidade do banco (corrida) → tratada como erro de e-mail duplicado.
+> **Atualização (2026-06-25):** os forms agora são **React Hook Form + Zod** e a navegação virou **SPA**.
+> `createUser`/`updateUser` recebem o **objeto validado** (não `FormData`) e retornam `{ ok }` — **sem
+> `redirect`**; o client fecha o modal e **invalida a query** `["usuarios"]` (React Query). `setUserActive`
+> também não redireciona. `fetchUsers` é a leitura usada pela busca no client.
+
+- `createUser`: valida (zod no servidor), normaliza e-mail, checa duplicidade de username/e-mail,
+  converte valor/hora (reais→centavos), `hashPassword`, insere.
+- `updateUser`: valida, checa duplicidade (excluindo o próprio id), aplica `name/username/email/hourlyRate`;
+  se senha preenchida (≥8) atualiza o hash. **RN-05:** se `id === currentUser.id`, ignora mudança de `role`.
+- `setUserActive`: **RN-05** bloqueia desativar a própria conta; ao desativar, `invalidateAllSessions(id)` (RF-05).
+- Violação de unicidade do banco (corrida) → tratada como erro de username/e-mail duplicado.
 
 ## 4. Fluxos Principais
 
@@ -86,25 +94,31 @@ Funcionário não tem `usuarios:ler` → redirect.
 
 > **Mobile first (CLAUDE.md §4)** + tokens/padrões de `docs/design-system.md` (§5).
 
-### `/usuarios` (lista)
-- **Cabeçalho:** título "Usuários" + campo de busca (`Input`, submit por GET `?q=`) + botão "Novo
-  usuário" (`Button`, **só admin**).
-- **Mobile (base):** lista de **cards** — cada card: nome (negrito), e-mail (`text-muted-foreground`
-  `text-sm`), `Badge` de papel e `Badge` de status (ativo=primary/secondary, inativo=outline/muted), e
-  ações (Editar / Ativar-Desativar) **só para admin**, com alvos ≥ 44px.
-- **`md:`+:** `Table` (shadcn) com colunas Nome · E-mail · Papel · Status · Ações.
+### `/usuarios` (lista — `usuarios-client.tsx`, client/SPA)
+- A página servidor só faz o guard (`usuarios:ler`) e renderiza o client com `currentUserId` + `isAdmin`.
+- **Busca via React Query** (`CLAUDE.md` §6): input controlado em estado local (sem URL), **debounce**
+  ~300ms → `useQuery(["usuarios", q], () => fetchUsers(q))` com `placeholderData: keepPreviousData`
+  (sem flicker) e spinner de `isFetching`. **Não** usa `?q=` na URL.
+- **Cabeçalho:** título "Usuários" + busca + botão "Novo usuário" (abre **modal**, só admin).
+- **Mobile (base):** lista de **cards** — cada card: nome (negrito), `@username`, e-mail e **valor/hora**
+  (quando houver) em `text-muted-foreground`, `Badge` de papel e `Badge` de status (ativo=primary/secondary,
+  inativo=outline/muted), e ações (Editar / Ativar-Desativar) **só para admin**, com alvos ≥ 44px.
+- **`md:`+:** `Table` (shadcn) com colunas Nome · Usuário · E-mail · Papel · **Valor/h** · Status · Ações.
+  Valor/hora formatado em BRL (`Intl.NumberFormat pt-BR`), "—" quando ausente.
 - **Estados:** vazio ("Nenhum usuário encontrado."), com resultado, e destaque sutil para inativos
   (ex.: `opacity-70`).
 
-### `/usuarios/novo` e `/usuarios/[id]` (form — componente `user-form.tsx`, client)
-- `Card` `max-w-md` centralizado; campos empilhados (`gap-4`):
-  - Nome (`Input`), E-mail (`Input type=email`), Papel (`<select>` nativo estilizado com as 3 opções),
+### Modal de usuário (criar/editar — `user-form.tsx`, client)
+- Criar/editar acontecem em **`Modal`** na própria lista (não há mais rotas `/usuarios/novo` nem
+  `/usuarios/[id]`). O modo `edit` reaproveita os dados do item já carregado na lista (sem novo fetch).
+- **React Hook Form + Zod** (`CLAUDE.md` §7); campos (`gap-4`):
+  - Nome (`Input`), Usuário/login (`Input`, sugerido do nome), E-mail (`Input type=email`, opcional),
+    Papel (`<select>` via `<Controller>`), **Valor/hora** (`Input type=number step=0.01`, opcional, em R$),
     Senha (`Input type=password`; em **novo** obrigatória, em **edição** "deixe em branco para manter").
   - Em edição da **própria conta**: select de papel **desabilitado** + aviso curto (RN-05).
-- Botão primário "Salvar" (`h-11 w-full` no mobile) + link "Cancelar" → `/usuarios`.
-- Erros: mensagem por campo (`text-destructive text-sm`) e/ou erro geral.
-- **Animação (motion):** entrada do Card com fade+`y` (igual ao login), respeitando `prefers-reduced-motion`.
-- **Feedback:** `sonner` (toast) de sucesso ao voltar para a lista (via `?ok=criado|salvo|status`).
+- Botões "Salvar" + "Cancelar" (fecha o modal). Erros por campo (`text-destructive text-sm`) + erro geral.
+- **Feedback:** no sucesso, fecha o modal, **invalida** `["usuarios"]` (refetch) e dispara `sonner` (toast).
+  Ativar/desativar é uma mutação que também invalida a query.
 
 ## 6. Validações & Tratamento de Erros
 

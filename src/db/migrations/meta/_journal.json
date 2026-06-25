@@ -29,6 +29,34 @@
       "when": 1782260592356,
       "tag": "0003_smart_agent_zero",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782391381456,
+      "tag": "0004_flippant_ghost_rider",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782407526513,
+      "tag": "0005_quiet_beyonder",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782414388236,
+      "tag": "0006_late_tempest",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1782417828075,
+      "tag": "0007_brainy_sinister_six",
+      "breakpoints": true
     }
   ]
 }

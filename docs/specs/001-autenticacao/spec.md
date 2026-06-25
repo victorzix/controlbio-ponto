@@ -10,6 +10,12 @@
 > **Camada 1 — O QUÊ e o PORQUÊ.** Este documento descreve o problema e os requisitos.
 > Evite falar de tecnologia, banco de dados ou implementação (isso vai no `plan.md` e `design.md`).
 
+> ⚠️ **Atualização (2026-06-25 — spec [`004-login-por-nome`](../004-login-por-nome/spec.md)):**
+> o identificador de login deixou de ser o **e-mail** e passou a ser o **usuário (username)** —
+> primeiro nome normalizado (minúsculo, sem acento). O e-mail virou opcional e não autentica mais.
+> Onde abaixo se lê "e-mail" como credencial de login (RF-01, RF-02, RF-04, RN-03, RN-07, user
+> stories), considere "usuário". O restante (sessão, logout, hashing, conta inativa) permanece válido.
+
 ## 1. Resumo
 
 Permitir que pessoas usuárias do controlbio-ponto **provem quem são** para usar o sistema. Esta
