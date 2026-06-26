@@ -32,12 +32,33 @@ COPY . .
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Placeholder só para o BUILD: `src/db/index.ts` valida a presença de
+# DATABASE_URL no import, e o `next build` carrega esses módulos. O postgres-js
+# é lazy (não conecta sem query) e nenhuma página consulta o banco no build, então
+# este valor nunca abre conexão. A URL REAL é injetada em runtime (compose).
+ENV DATABASE_URL="postgresql://build:build@127.0.0.1:5432/build"
+
 # Cacheia .next/cache entre builds para acelerar rebuilds.
 RUN --mount=type=cache,target=/app/.next/cache \
     npm run build
 
 # ------------------------------------------------------------
-# Stage 3: runtime mínimo
+# Stage 3: ferramentas de banco (migrate / seed)
+# Tem o código + node_modules COMPLETO (inclui drizzle-kit e tsx, que são
+# devDependencies). Não roda build — é usado só por `docker compose run` para
+# aplicar migrations e criar o admin. Ver `docker-compose.yml` e `seed.sh`.
+# ------------------------------------------------------------
+FROM node:${NODE_VERSION} AS tools
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY . .
+# Default: aplica as migrations pendentes (idempotente).
+CMD ["npm", "run", "db:migrate"]
+
+# ------------------------------------------------------------
+# Stage 4: runtime mínimo
 # ------------------------------------------------------------
 FROM node:${NODE_VERSION} AS runner
 WORKDIR /app

@@ -6,8 +6,8 @@
 
 | Campo         | Valor              |
 | ------------- | ------------------ |
-| Versão        | 1.7                |
-| Atualizado em | 2026-06-25         |
+| Versão        | 1.9                |
+| Atualizado em | 2026-06-26         |
 | Stack visual  | Tailwind CSS v4 · shadcn/ui (new-york) · lucide-react · motion |
 
 ---
@@ -171,7 +171,12 @@ referenciam sempre o **token semântico** (`bg-primary`, `text-muted-foreground`
   (inativa `text-muted-foreground`), com `role="tablist"`/`role="tab"`. Mais bonito que `<select>` para
   2–4 opções. Padrão no filtro de `/ponto`.
 - **Tabelas:** `Table` do shadcn no desktop; no **mobile**, prefira lista de **cards** (uma coluna) em vez
-  de espremer a tabela. Padrão usado em `/usuarios`.
+  de espremer a tabela. Padrão usado em `/usuarios` e no detalhamento por usuário de **/** (Relatórios).
+- **Seleção múltipla (multi-select):** sem dropdown radix (registry trava). Use um **botão-gatilho**
+  ("Usuários (N)") que abre o **`Modal`** com uma lista de **checkboxes nativos** (`accent-primary`,
+  linha com alvo ≥ 44px). A seleção é editada num **rascunho** e só vale ao tocar **Aplicar** (evita
+  refazer a query a cada toque); inclui atalhos **Marcar todos** / **Limpar**. Padrão em **/** (Relatórios),
+  ver `src/app/(app)/user-multiselect.tsx`.
 - **Badge:** status/rótulos curtos. Convenção: ativo = `secondary`/`default`; inativo/neutro = `outline`;
   erro/alerta = `destructive`.
 - **Rich text:** padrão **Markdown**. Edição via textarea + mini-toolbar (negrito/itálico/link/lista) +
@@ -180,6 +185,11 @@ referenciam sempre o **token semântico** (`bg-primary`, `text-muted-foreground`
   Subset: negrito, itálico, código, links, listas, parágrafos. Não usamos editores WYSIWYG/libs externas.
 - **Formulários:** padrão `useActionState` + Server Action (sem react-hook-form). Erros por campo inline.
 - **Feedback:** usar `sonner` (toast) para sucesso/erro de ações; erro de formulário inline abaixo do campo.
+- **Avatar:** componente próprio `src/components/ui/avatar.tsx` — círculo com as
+  **iniciais** do nome (puro, sem radix; o avatar do shadcn depende de radix e o
+  registry trava — ver acima). Default `size-8 rounded-full` com tokens da sidebar
+  (`bg-sidebar-accent`/`text-sidebar-accent-foreground`); aceita `className`. Usado
+  no controle "Minha conta" do rodapé da sidebar.
 - **Ícones:** `lucide-react`, tamanho `size-4`/`size-5`, cor herdada (`text-current`/`text-muted-foreground`).
 
 ## 7. Animações (motion)
@@ -227,7 +237,13 @@ registry trava neste ambiente (ver §6).
   trava o scroll do body enquanto aberto.
 - **Animação (`motion`).** Drawer entra/sai com `x: -100% → 0` (overlay com fade), `~250ms ease-out`,
   via `AnimatePresence`. Respeita `prefers-reduced-motion` (cai para fade simples) — ver §7.
-- **Rodapé.** Nome do usuário (truncado) + botão **Sair** (`logoutAction`, `variant="ghost"`).
+- **Rodapé.** **Controle "Minha conta"** (`Avatar` de iniciais + nome truncado) que
+  abre o modal de autoatendimento do próprio perfil (spec 005-minha-conta), à
+  esquerda (`flex-1`, `min-h-[44px]`), + botão **Sair** (`logoutAction`,
+  `variant="ghost"`, ícone, com `title`/`aria-label`). No **rail**, o controle de
+  conta vira só o avatar (nome esmaece) com tooltip "Minha conta"; o modal é único
+  e serve mobile e desktop. Ao abrir pelo drawer mobile, fecha o drawer antes
+  (evita sobreposição `z-50`).
 
 ## 10. Como evoluir este documento
 

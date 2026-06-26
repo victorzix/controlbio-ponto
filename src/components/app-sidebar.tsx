@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
-  Home,
+  BarChart3,
   Clock3,
   Users,
   LogOut,
@@ -18,10 +18,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { logoutAction } from "@/lib/auth/actions";
 import { useSidebarStore } from "@/lib/stores/sidebar";
 import { Button } from "@/components/ui/button";
+import { Avatar } from "@/components/ui/avatar";
+import { ContaModal } from "@/components/conta-modal";
 import { cn } from "@/lib/utils";
 
 type AppSidebarProps = {
-  userName: string;
+  user: { name: string; username: string; email: string | null };
   canVerPonto: boolean;
   canReadUsuarios: boolean;
 };
@@ -50,7 +52,7 @@ const WIDTH_RAIL = "md:w-16";
  * Assim o movimento fica fluido (sem texto piscando nem ícone "pulando").
  */
 export function AppSidebar({
-  userName,
+  user,
   canVerPonto,
   canReadUsuarios,
 }: AppSidebarProps) {
@@ -60,6 +62,14 @@ export function AppSidebar({
 
   // Drawer mobile: estado efêmero, local.
   const [open, setOpen] = useState(false);
+  // Modal "Minha conta" (spec 005): estado efêmero, local.
+  const [contaOpen, setContaOpen] = useState(false);
+
+  /** Abre "Minha conta"; fecha o drawer antes (evita sobreposição z-50). */
+  function openConta() {
+    setOpen(false);
+    setContaOpen(true);
+  }
 
   const toggle = useSidebarStore((s) => s.toggle);
   // Estado do rail persistido (Zustand). Lido via useSyncExternalStore com
@@ -73,8 +83,10 @@ export function AppSidebar({
   );
 
   const items: NavItem[] = [
-    // "Início" só para admin — funcionário não tem home (vai direto ao ponto).
-    ...(canReadUsuarios ? [{ href: "/", label: "Início", icon: Home }] : []),
+    // "Relatórios" só para admin — funcionário não tem home (vai direto ao ponto).
+    ...(canReadUsuarios
+      ? [{ href: "/", label: "Relatórios", icon: BarChart3 }]
+      : []),
     ...(canVerPonto ? [{ href: "/ponto", label: "Ponto", icon: Clock3 }] : []),
     ...(canReadUsuarios
       ? [{ href: "/usuarios", label: "Usuários", icon: Users }]
@@ -151,35 +163,44 @@ export function AppSidebar({
     </nav>
   );
 
-  /** Rodapé: ícone de sair (posição fixa) + "Sair" e nome que esmaecem no rail. */
+  /**
+   * Rodapé: botão de conta (avatar + nome) que abre "Minha conta", e o botão de
+   * sair. No rail, ambos viram só ícone (rótulo/nome esmaecem) com tooltip nativo.
+   */
   const renderFooter = (rail: boolean) => (
     <div className="flex h-14 items-center gap-1 border-t border-sidebar-border px-2">
+      <button
+        type="button"
+        onClick={openConta}
+        title={rail ? "Minha conta" : undefined}
+        aria-label="Minha conta"
+        className={cn(
+          "inline-flex min-h-[44px] min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-sm transition-colors",
+          "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+        )}
+      >
+        <Avatar name={user.name} />
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-left transition-opacity duration-200",
+            rail && "opacity-0",
+          )}
+        >
+          {user.name}
+        </span>
+      </button>
       <form action={logoutAction} onSubmit={() => queryClient.clear()}>
         <Button
           type="submit"
           variant="ghost"
-          className="h-11 gap-2 px-3"
-          title={rail ? "Sair" : undefined}
+          size="icon"
+          className="size-11 shrink-0"
+          title="Sair"
           aria-label="Sair"
         >
           <LogOut className="size-4 shrink-0" />
-          <span
-            className={cn("transition-opacity duration-200", rail && "opacity-0")}
-          >
-            Sair
-          </span>
         </Button>
       </form>
-      <span
-        className={cn(
-          "min-w-0 flex-1 truncate text-right text-sm text-muted-foreground transition-opacity duration-200",
-          rail && "opacity-0",
-        )}
-        title={userName}
-        aria-hidden={rail || undefined}
-      >
-        {userName}
-      </span>
     </div>
   );
 
@@ -277,6 +298,13 @@ export function AppSidebar({
           </div>
         ) : null}
       </AnimatePresence>
+
+      {/* Modal "Minha conta" — único, serve desktop e mobile (overlay fixo). */}
+      <ContaModal
+        open={contaOpen}
+        onClose={() => setContaOpen(false)}
+        user={user}
+      />
     </>
   );
 }

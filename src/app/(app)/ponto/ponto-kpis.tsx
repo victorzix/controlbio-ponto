@@ -8,7 +8,10 @@ const brlFmt = new Intl.NumberFormat("pt-BR", {
 });
 
 /** Valor estimado (centavos) = minutos × valor/hora(centavos) ÷ 60. */
-function estimateCents(minutes: number, rateCents: number | null): number | null {
+export function estimateCents(
+  minutes: number,
+  rateCents: number | null,
+): number | null {
   return rateCents != null ? Math.round((minutes * rateCents) / 60) : null;
 }
 
@@ -41,11 +44,14 @@ function Kpi({ label, value, icon, valueClassName, hint }: KpiProps) {
 
 type PontoKpisProps = {
   totalMinutes: number;
-  hourlyRateCents: number | null;
+  /** Valor estimado já calculado (centavos), ou null quando não há valor/hora. */
+  valueCents: number | null;
+  /** Texto auxiliar sob o valor (ex.: "R$ 50,00/h" ou nota). */
+  hint?: string;
 };
 
-/** Painel de indicadores do ponto. Os totais acompanharão os filtros da lista. */
-export function PontoKpis({ totalMinutes, hourlyRateCents }: PontoKpisProps) {
+/** Painel de indicadores do ponto. Os totais acompanham os filtros da lista. */
+export function PontoKpis({ totalMinutes, valueCents, hint }: PontoKpisProps) {
   return (
     <section className="grid grid-cols-2 gap-3">
       <Kpi
@@ -55,14 +61,10 @@ export function PontoKpis({ totalMinutes, hourlyRateCents }: PontoKpisProps) {
       />
       <Kpi
         label="Valor estimado"
-        value={formatCents(estimateCents(totalMinutes, hourlyRateCents))}
+        value={formatCents(valueCents)}
         icon={<Wallet className="text-primary size-4" />}
         valueClassName="text-primary"
-        hint={
-          hourlyRateCents != null
-            ? `${brlFmt.format(hourlyRateCents / 100)}/h`
-            : "defina o valor/hora no usuário"
-        }
+        hint={hint}
       />
     </section>
   );

@@ -12,6 +12,7 @@ import {
   SESSION_COOKIE_NAME,
   SESSION_MAX_AGE,
 } from "./session";
+import { isSessionCookieSecure } from "./cookie";
 import { loginSchema } from "./validation";
 
 /** Mensagem genérica — não revela se o usuário existe (RN-07). */
@@ -72,7 +73,7 @@ export async function loginAction(input: unknown): Promise<LoginState> {
   cookieStore.set(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: isSessionCookieSecure(),
     path: "/",
     maxAge: SESSION_MAX_AGE,
   });

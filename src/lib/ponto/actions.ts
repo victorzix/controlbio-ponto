@@ -5,7 +5,13 @@ import { db } from "@/db";
 import { registrosPonto } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/guard";
 import { createEntrySchema, updateEntrySchema } from "./validation";
-import { listOwnEntries, type DateRange, type PontoEntry } from "./data";
+import {
+  listOwnEntries,
+  listEntriesByUsers,
+  type DateRange,
+  type PontoEntry,
+  type TeamEntry,
+} from "./data";
 
 /**
  * Leitura dos registros do próprio usuário (opcionalmente por intervalo) para o
@@ -16,6 +22,24 @@ export async function fetchOwnEntries(
 ): Promise<PontoEntry[]> {
   const user = await requirePermission("ponto:ver_proprio");
   return listOwnEntries(user.id, range);
+}
+
+/**
+ * Leitura dos registros de **vários** usuários (visão de equipe do admin, spec
+ * 007). Guarda no servidor: exige `ponto:ver_equipe`. Somente leitura — não há
+ * action para criar/editar/excluir ponto de outro usuário.
+ */
+export async function fetchEntriesByUsers(
+  userIds: string[],
+  range: DateRange,
+): Promise<TeamEntry[]> {
+  await requirePermission("ponto:ver_equipe");
+
+  const ids = (Array.isArray(userIds) ? userIds : []).filter(
+    (id): id is string => typeof id === "string" && id.length > 0,
+  );
+
+  return listEntriesByUsers(ids, range);
 }
 
 export type PontoActionState = {

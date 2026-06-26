@@ -21,7 +21,7 @@ export default async function AppLayout({
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
       <AppSidebar
-        userName={user.name}
+        user={{ name: user.name, username: user.username, email: user.email }}
         canVerPonto={canVerPonto}
         canReadUsuarios={canReadUsuarios}
       />

@@ -2,13 +2,17 @@
 
 import { useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { fetchOwnEntries } from "@/lib/ponto/actions";
-import type { PontoEntry } from "@/lib/ponto/data";
+import { fetchEntriesByUsers, fetchOwnEntries } from "@/lib/ponto/actions";
+import type { PontoEntry, TeamEntry } from "@/lib/ponto/data";
+import type { ReportUserOption } from "@/lib/relatorios/data";
 import { getMonthRange, getWeekRange } from "@/lib/ponto/dates";
+import { formatWorkedMinutes } from "@/lib/ponto/validation";
+import { Badge } from "@/components/ui/badge";
 import { DateRangeField } from "@/components/ui/date-range-field";
 import { cn } from "@/lib/utils";
+import { UserMultiSelect } from "../user-multiselect";
 import { NovoPontoDialog } from "./novo-ponto-dialog";
-import { PontoKpis } from "./ponto-kpis";
+import { PontoKpis, estimateCents } from "./ponto-kpis";
 import { PontoList, type DateGroup } from "./ponto-list";
 
 type Preset = "week" | "month" | "custom";
@@ -18,6 +22,11 @@ const PRESETS: { value: Preset; label: string }[] = [
   { value: "month", label: "Mês" },
   { value: "custom", label: "Intervalo" },
 ];
+
+const brlFmt = new Intl.NumberFormat("pt-BR", {
+  style: "currency",
+  currency: "BRL",
+});
 
 /** Agrupa registros (ordenados por data desc) por dia e, no dia, por título. */
 function buildGroups(entries: PontoEntry[]): DateGroup[] {
@@ -46,6 +55,39 @@ function buildGroups(entries: PontoEntry[]): DateGroup[] {
   return byDate;
 }
 
+type UserSection = {
+  userId: string;
+  userName: string;
+  totalMinutes: number;
+  valueCents: number | null;
+  groups: DateGroup[];
+};
+
+/** Quebra os registros da equipe (ordenados por usuário) em seções por usuário. */
+function buildUserSections(entries: TeamEntry[]): UserSection[] {
+  const sections: UserSection[] = [];
+  let i = 0;
+  while (i < entries.length) {
+    const userId = entries[i].userId;
+    const userName = entries[i].userName;
+    const rateCents = entries[i].hourlyRateCents;
+    const userEntries: TeamEntry[] = [];
+    while (i < entries.length && entries[i].userId === userId) {
+      userEntries.push(entries[i]);
+      i++;
+    }
+    const totalMinutes = userEntries.reduce((s, e) => s + e.workedMinutes, 0);
+    sections.push({
+      userId,
+      userName,
+      totalMinutes,
+      valueCents: estimateCents(totalMinutes, rateCents),
+      groups: buildGroups(userEntries),
+    });
+  }
+  return sections;
+}
+
 type Props = {
   userId: string;
   today: string;
@@ -54,11 +96,17 @@ type Props = {
   canEdit: boolean;
   canDelete: boolean;
   canReplicate: boolean;
+  /** Admin: pode ver registros de outros usuários (spec 007). */
+  canVerEquipe: boolean;
+  /** Usuários selecionáveis (apenas admin; vazio para funcionário). */
+  users: ReportUserOption[];
 };
 
 /**
  * Tela de ponto (SPA): filtro de período (semana / mês / intervalo) via React
- * Query — a lista **e** os KPIs acompanham o filtro. Ver `CLAUDE.md` §6.
+ * Query — lista e KPIs acompanham o filtro. Para **admin** (spec 007) há ainda
+ * um seletor de usuários: o default é só ele (CRUD normal); ao incluir outros, a
+ * visão vira **somente leitura** e mostra os registros por usuário. Ver `CLAUDE.md` §6.
  */
 export function PontoView({
   userId,
@@ -68,12 +116,15 @@ export function PontoView({
   canEdit,
   canDelete,
   canReplicate,
+  canVerEquipe,
+  users,
 }: Props) {
   const [preset, setPreset] = useState<Preset>("month");
   const [customFrom, setCustomFrom] = useState(() => getMonthRange(today).from);
   const [customTo, setCustomTo] = useState(today);
+  // Default: só o próprio usuário (RF: ao abrir, é o dele).
+  const [selectedIds, setSelectedIds] = useState<string[]>([userId]);
 
-  // Intervalo efetivo (no custom, garante from <= to).
   const range = useMemo(() => {
     if (preset === "week") return getWeekRange(today);
     if (preset === "month") return getMonthRange(today);
@@ -82,26 +133,39 @@ export function PontoView({
       : { from: customTo, to: customFrom };
   }, [preset, customFrom, customTo, today]);
 
-  const { data: entries = [], isPending } = useQuery({
+  // "Só eu" = comportamento clássico (CRUD). Senão, visão de equipe (read-only).
+  const isOwnOnly = selectedIds.length === 1 && selectedIds[0] === userId;
+  const useOwn = !canVerEquipe || isOwnOnly;
+  const sortedIds = useMemo(() => [...selectedIds].sort(), [selectedIds]);
+
+  // Própria lista (funcionário, ou admin vendo só a si): key ["ponto"] para as
+  // mutações de criar/editar/excluir invalidarem corretamente.
+  const ownQuery = useQuery({
     queryKey: ["ponto", userId, range.from, range.to],
     queryFn: () => fetchOwnEntries(range),
+    enabled: useOwn,
     placeholderData: keepPreviousData,
   });
 
-  const totalMinutes = entries.reduce((sum, e) => sum + e.workedMinutes, 0);
-  const groups = buildGroups(entries);
+  // Equipe (admin, com outros selecionados): somente leitura.
+  const teamQuery = useQuery({
+    queryKey: ["ponto-team", range.from, range.to, sortedIds],
+    queryFn: () => fetchEntriesByUsers(selectedIds, range),
+    enabled: canVerEquipe && !isOwnOnly && selectedIds.length > 0,
+    placeholderData: keepPreviousData,
+  });
 
   return (
     <div className="space-y-6">
       {/* Cabeçalho */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-          Meus registros
+          {useOwn ? "Meus registros" : "Registros da equipe"}
         </h1>
-        {canRegister ? <NovoPontoDialog today={today} /> : null}
+        {canRegister && useOwn ? <NovoPontoDialog today={today} /> : null}
       </div>
 
-      {/* Filtro de período */}
+      {/* Filtros: período (+ usuários, só admin) */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div
           role="tablist"
@@ -137,34 +201,150 @@ export function PontoView({
             }}
           />
         ) : null}
+
+        {canVerEquipe ? (
+          <UserMultiSelect
+            users={users}
+            selectedIds={selectedIds}
+            onChange={setSelectedIds}
+          />
+        ) : null}
       </div>
 
-      {isPending ? (
-        <p className="text-muted-foreground py-8 text-center text-sm">
-          Carregando...
-        </p>
+      {useOwn ? (
+        <OwnContent
+          query={ownQuery}
+          today={today}
+          hourlyRateCents={hourlyRateCents}
+          canEdit={canEdit}
+          canDelete={canDelete}
+          canReplicate={canReplicate}
+        />
+      ) : selectedIds.length === 0 ? (
+        <div className="text-muted-foreground rounded-lg border border-dashed py-10 text-center text-sm">
+          Selecione ao menos um usuário.
+        </div>
       ) : (
-        <>
-          <PontoKpis
-            totalMinutes={totalMinutes}
-            hourlyRateCents={hourlyRateCents}
-          />
-
-          {entries.length === 0 ? (
-            <div className="text-muted-foreground rounded-lg border border-dashed py-10 text-center text-sm">
-              Nenhum registro no período.
-            </div>
-          ) : (
-            <PontoList
-              groups={groups}
-              today={today}
-              canEdit={canEdit}
-              canDelete={canDelete}
-              canReplicate={canReplicate}
-            />
-          )}
-        </>
+        <TeamContent query={teamQuery} today={today} />
       )}
     </div>
+  );
+}
+
+/** Visão clássica do próprio ponto (com CRUD). */
+function OwnContent({
+  query,
+  today,
+  hourlyRateCents,
+  canEdit,
+  canDelete,
+  canReplicate,
+}: {
+  query: { data?: PontoEntry[]; isPending: boolean };
+  today: string;
+  hourlyRateCents: number | null;
+  canEdit: boolean;
+  canDelete: boolean;
+  canReplicate: boolean;
+}) {
+  const entries = query.data ?? [];
+  const totalMinutes = entries.reduce((s, e) => s + e.workedMinutes, 0);
+  const groups = buildGroups(entries);
+
+  if (query.isPending) {
+    return (
+      <p className="text-muted-foreground py-8 text-center text-sm">
+        Carregando...
+      </p>
+    );
+  }
+
+  return (
+    <>
+      <PontoKpis
+        totalMinutes={totalMinutes}
+        valueCents={estimateCents(totalMinutes, hourlyRateCents)}
+        hint={
+          hourlyRateCents != null
+            ? `${brlFmt.format(hourlyRateCents / 100)}/h`
+            : "defina o valor/hora no usuário"
+        }
+      />
+      {entries.length === 0 ? (
+        <div className="text-muted-foreground rounded-lg border border-dashed py-10 text-center text-sm">
+          Nenhum registro no período.
+        </div>
+      ) : (
+        <PontoList
+          groups={groups}
+          today={today}
+          canEdit={canEdit}
+          canDelete={canDelete}
+          canReplicate={canReplicate}
+        />
+      )}
+    </>
+  );
+}
+
+/** Visão de equipe (admin): registros por usuário, somente leitura. */
+function TeamContent({
+  query,
+  today,
+}: {
+  query: { data?: TeamEntry[]; isPending: boolean };
+  today: string;
+}) {
+  const sections = useMemo(
+    () => buildUserSections(query.data ?? []),
+    [query.data],
+  );
+
+  const totalMinutes = sections.reduce((s, u) => s + u.totalMinutes, 0);
+  const anyRate = sections.some((u) => u.valueCents != null);
+  const totalValueCents = anyRate
+    ? sections.reduce((s, u) => s + (u.valueCents ?? 0), 0)
+    : null;
+
+  if (query.isPending) {
+    return (
+      <p className="text-muted-foreground py-8 text-center text-sm">
+        Carregando...
+      </p>
+    );
+  }
+
+  return (
+    <>
+      <PontoKpis totalMinutes={totalMinutes} valueCents={totalValueCents} />
+      {sections.length === 0 ? (
+        <div className="text-muted-foreground rounded-lg border border-dashed py-10 text-center text-sm">
+          Nenhum registro no período.
+        </div>
+      ) : (
+        <div className="space-y-8">
+          {sections.map((u) => (
+            <section key={u.userId} className="space-y-3">
+              <div className="flex items-center justify-between gap-2 border-b border-border pb-2">
+                <h2 className="min-w-0 truncate text-lg font-semibold">
+                  {u.userName}
+                </h2>
+                <Badge variant="secondary" className="shrink-0">
+                  {formatWorkedMinutes(u.totalMinutes)}
+                </Badge>
+              </div>
+              {/* Somente leitura: sem editar/excluir/replicar. */}
+              <PontoList
+                groups={u.groups}
+                today={today}
+                canEdit={false}
+                canDelete={false}
+                canReplicate={false}
+              />
+            </section>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
