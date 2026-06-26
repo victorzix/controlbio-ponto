@@ -2,12 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { RefreshCw } from "lucide-react";
 import { fetchEntriesByUsers, fetchOwnEntries } from "@/lib/ponto/actions";
 import type { PontoEntry, TeamEntry } from "@/lib/ponto/data";
 import type { ReportUserOption } from "@/lib/relatorios/data";
 import { getMonthRange, getWeekRange } from "@/lib/ponto/dates";
 import { formatWorkedMinutes } from "@/lib/ponto/validation";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { DateRangeField } from "@/components/ui/date-range-field";
 import { cn } from "@/lib/utils";
 import { UserMultiSelect } from "../user-multiselect";
@@ -155,6 +157,13 @@ export function PontoView({
     placeholderData: keepPreviousData,
   });
 
+  // Refaz a query ativa (própria ou de equipe).
+  const isFetching = useOwn ? ownQuery.isFetching : teamQuery.isFetching;
+  function refresh() {
+    if (useOwn) ownQuery.refetch();
+    else teamQuery.refetch();
+  }
+
   return (
     <div className="space-y-6">
       {/* Cabeçalho */}
@@ -162,7 +171,21 @@ export function PontoView({
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
           {useOwn ? "Meus registros" : "Registros da equipe"}
         </h1>
-        {canRegister && useOwn ? <NovoPontoDialog today={today} /> : null}
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="size-11 shrink-0"
+            onClick={refresh}
+            disabled={isFetching || (!useOwn && selectedIds.length === 0)}
+            aria-label="Atualizar"
+            title="Atualizar"
+          >
+            <RefreshCw className={cn("size-4", isFetching && "animate-spin")} />
+          </Button>
+          {canRegister && useOwn ? <NovoPontoDialog today={today} /> : null}
+        </div>
       </div>
 
       {/* Filtros: período (+ usuários, só admin) */}

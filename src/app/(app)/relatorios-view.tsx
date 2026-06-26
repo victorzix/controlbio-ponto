@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { CalendarClock, Clock, Download, Wallet } from "lucide-react";
+import { CalendarClock, Clock, Download, RefreshCw, Wallet } from "lucide-react";
 import { fetchReport } from "@/lib/relatorios/actions";
 import type { ReportRow, ReportUserOption } from "@/lib/relatorios/data";
 import { getMonthRange, getWeekRange } from "@/lib/ponto/dates";
@@ -131,7 +131,12 @@ export function RelatoriosView({ users, today }: Props) {
 
   const sortedIds = useMemo(() => [...selectedIds].sort(), [selectedIds]);
 
-  const { data: rows = [], isPending } = useQuery({
+  const {
+    data: rows = [],
+    isPending,
+    isFetching,
+    refetch,
+  } = useQuery({
     queryKey: ["relatorios", range.from, range.to, sortedIds],
     queryFn: () => fetchReport(range, selectedIds),
     placeholderData: keepPreviousData,
@@ -156,16 +161,30 @@ export function RelatoriosView({ users, today }: Props) {
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
           Relatórios
         </h1>
-        <Button
-          type="button"
-          variant="outline"
-          className="h-11"
-          onClick={exportXlsx}
-          disabled={selectedIds.length === 0 || rows.length === 0}
-        >
-          <Download className="size-4" />
-          Exportar Excel
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="size-11 shrink-0"
+            onClick={() => refetch()}
+            disabled={selectedIds.length === 0 || isFetching}
+            aria-label="Atualizar"
+            title="Atualizar"
+          >
+            <RefreshCw className={cn("size-4", isFetching && "animate-spin")} />
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-11"
+            onClick={exportXlsx}
+            disabled={selectedIds.length === 0 || rows.length === 0}
+          >
+            <Download className="size-4" />
+            Exportar Excel
+          </Button>
+        </div>
       </div>
 
       {/* Filtros: período + usuários */}
