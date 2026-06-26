@@ -6,7 +6,7 @@
 
 | Campo         | Valor              |
 | ------------- | ------------------ |
-| Versão        | 1.9                |
+| Versão        | 1.10               |
 | Atualizado em | 2026-06-26         |
 | Stack visual  | Tailwind CSS v4 · shadcn/ui (new-york) · lucide-react · motion |
 
@@ -244,6 +244,16 @@ registry trava neste ambiente (ver §6).
   conta vira só o avatar (nome esmaece) com tooltip "Minha conta"; o modal é único
   e serve mobile e desktop. Ao abrir pelo drawer mobile, fecha o drawer antes
   (evita sobreposição `z-50`).
+- **Alternador de tema (claro/escuro).** Logo acima do rodapé há um botão de tema
+  (`src/components/theme-toggle.tsx`), estilizado como um item da sidebar: ícone
+  **sol ↔ lua** (lucide) que troca com `motion` (gira + esmaece, respeita
+  `prefers-reduced-motion`) e rótulo "Tema claro/escuro" que esmaece no **rail**
+  (tooltip nativo). O tema escuro usa os tokens `.dark` (§3); a preferência fica em
+  **Zustand** (`useThemeStore`, `src/lib/stores/theme.ts`) persistida no
+  `localStorage` (chave `controlbio:theme`) — na ausência, segue o
+  `prefers-color-scheme` do sistema. Para **não piscar** o tema errado, a classe
+  `.dark` é aplicada por um **script inline** no `layout.tsx` **antes da
+  hidratação**; o store só reflete/atualiza o valor após montar.
 
 ## 10. Como evoluir este documento
 

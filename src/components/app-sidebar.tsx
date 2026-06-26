@@ -20,6 +20,7 @@ import { useSidebarStore } from "@/lib/stores/sidebar";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { ContaModal } from "@/components/conta-modal";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/utils";
 
 type AppSidebarProps = {
@@ -236,6 +237,9 @@ export function AppSidebar({
           {renderBrand(isCollapsed)}
         </div>
         {renderNav(isCollapsed)}
+        <div className="px-3 pb-2">
+          <ThemeToggle rail={isCollapsed} />
+        </div>
         {renderFooter(isCollapsed)}
       </aside>
 
@@ -293,6 +297,9 @@ export function AppSidebar({
                 </Button>
               </div>
               {renderNav(false)}
+              <div className="px-3 pb-2">
+                <ThemeToggle rail={false} />
+              </div>
               {renderFooter(false)}
             </motion.aside>
           </div>

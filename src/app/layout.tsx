@@ -19,6 +19,14 @@ export const metadata: Metadata = {
   description: "Sistema de ponto eletrônico da controlbio.",
 };
 
+/**
+ * Aplica a classe `.dark` no `<html>` **antes da hidratação** (evita flash do
+ * tema errado). Lê a preferência salva pela `useThemeStore` (chave
+ * `controlbio:theme`); na ausência, segue o `prefers-color-scheme` do sistema.
+ * Mantenha a chave em sincronia com `src/lib/stores/theme.ts`.
+ */
+const themeInitScript = `(function(){try{var t=localStorage.getItem('controlbio:theme');if(t!=='light'&&t!=='dark'){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}if(t==='dark'){document.documentElement.classList.add('dark');}}catch(e){}})();`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -31,6 +39,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <Providers>{children}</Providers>
         <Toaster />
       </body>
