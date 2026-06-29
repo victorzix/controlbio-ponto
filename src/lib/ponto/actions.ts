@@ -162,6 +162,48 @@ export async function updateEntry(
 }
 
 /**
+ * Duplica um registro de ponto do próprio usuário: cria uma **cópia exata**
+ * (mesmo título, dia, tempo, descrição e link) — spec 009.
+ * Segurança: só duplica registro cujo dono é o usuário da sessão (RN-05); o
+ * dono da cópia é sempre a sessão. Exige `ponto:registrar` (é uma criação).
+ */
+export async function duplicateEntry(id: string): Promise<PontoActionState> {
+  const user = await requirePermission("ponto:registrar");
+
+  if (typeof id !== "string" || !id) {
+    return { error: "Registro inválido." };
+  }
+
+  const found = await db
+    .select({
+      title: registrosPonto.title,
+      workDate: registrosPonto.workDate,
+      workedMinutes: registrosPonto.workedMinutes,
+      description: registrosPonto.description,
+      link: registrosPonto.link,
+    })
+    .from(registrosPonto)
+    .where(and(eq(registrosPonto.id, id), eq(registrosPonto.userId, user.id)))
+    .limit(1);
+
+  const original = found[0];
+  if (!original) {
+    return { error: "Registro não encontrado." };
+  }
+
+  await db.insert(registrosPonto).values({
+    userId: user.id,
+    title: original.title,
+    workDate: original.workDate,
+    workedMinutes: original.workedMinutes,
+    description: original.description,
+    link: original.link,
+  });
+
+  return { ok: true, created: 1 };
+}
+
+/**
  * Exclui um registro de ponto do próprio usuário.
  * Segurança: a exclusão é escopada por dono (RN-05).
  */

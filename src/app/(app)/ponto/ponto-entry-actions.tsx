@@ -2,9 +2,14 @@
 
 import { useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Copy, ExternalLink, Pencil, Trash2 } from "lucide-react";
+import { Copy, CopyPlus, ExternalLink, Loader2, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { deleteEntry, type PontoActionState } from "@/lib/ponto/actions";
+import {
+  deleteEntry,
+  duplicateEntry,
+  type PontoActionState,
+} from "@/lib/ponto/actions";
+import { notifyUnexpectedError } from "@/lib/forms/notify-error";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { PontoForm, type PontoEntryFormData } from "./ponto-form";
@@ -30,6 +35,7 @@ export function PontoEntryActions({
   const [replicateOpen, setReplicateOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
 
   const closeEdit = useCallback(() => setEditOpen(false), []);
   const closeReplicate = useCallback(() => setReplicateOpen(false), []);
@@ -58,6 +64,25 @@ export function PontoEntryActions({
     },
     [invalidate],
   );
+
+  // Duplicar: cópia exata em 1 clique, sem modal (spec 009).
+  async function handleDuplicate() {
+    if (duplicating) return;
+    setDuplicating(true);
+    try {
+      const res = await duplicateEntry(entry.id);
+      if (res.ok) {
+        invalidate();
+        toast.success("Registro duplicado.");
+      } else {
+        toast.error(res.error ?? "Não foi possível duplicar o registro.");
+      }
+    } catch (err) {
+      notifyUnexpectedError(err);
+    } finally {
+      setDuplicating(false);
+    }
+  }
 
   async function confirmDelete() {
     setDeleting(true);
@@ -105,10 +130,27 @@ export function PontoEntryActions({
             size="icon"
             className="text-muted-foreground hover:text-foreground size-8"
             aria-label="Replicar registro"
-            title="Replicar"
+            title="Replicar (só título e dia)"
             onClick={() => setReplicateOpen(true)}
           >
             <Copy className="size-4" />
+          </Button>
+        ) : null}
+        {canReplicate ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-foreground size-8"
+            aria-label="Duplicar registro (cópia exata)"
+            title="Duplicar (cópia exata)"
+            onClick={handleDuplicate}
+            disabled={duplicating}
+          >
+            {duplicating ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <CopyPlus className="size-4" />
+            )}
           </Button>
         ) : null}
         {canEdit ? (
