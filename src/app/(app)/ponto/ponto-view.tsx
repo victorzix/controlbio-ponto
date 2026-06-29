@@ -6,7 +6,11 @@ import { RefreshCw } from "lucide-react";
 import { fetchEntriesByUsers, fetchOwnEntries } from "@/lib/ponto/actions";
 import type { PontoEntry, TeamEntry } from "@/lib/ponto/data";
 import type { ReportUserOption } from "@/lib/relatorios/data";
-import { getMonthRange, getWeekRange } from "@/lib/ponto/dates";
+import {
+  getMonthRange,
+  getPreviousMonthRange,
+  getWeekRange,
+} from "@/lib/ponto/dates";
 import { formatWorkedMinutes } from "@/lib/ponto/validation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,9 +21,10 @@ import { NovoPontoDialog } from "./novo-ponto-dialog";
 import { PontoKpis, estimateCents } from "./ponto-kpis";
 import { PontoList, type DateGroup } from "./ponto-list";
 
-type Preset = "week" | "month" | "custom";
+type Preset = "previousMonth" | "week" | "month" | "custom";
 
 const PRESETS: { value: Preset; label: string }[] = [
+  { value: "previousMonth", label: "Mês anterior" },
   { value: "week", label: "Semana" },
   { value: "month", label: "Mês" },
   { value: "custom", label: "Intervalo" },
@@ -128,6 +133,7 @@ export function PontoView({
   const [selectedIds, setSelectedIds] = useState<string[]>([userId]);
 
   const range = useMemo(() => {
+    if (preset === "previousMonth") return getPreviousMonthRange(today);
     if (preset === "week") return getWeekRange(today);
     if (preset === "month") return getMonthRange(today);
     return customFrom <= customTo
@@ -193,7 +199,7 @@ export function PontoView({
         <div
           role="tablist"
           aria-label="Período"
-          className="bg-muted inline-flex w-full rounded-lg p-1 sm:w-auto"
+          className="bg-muted inline-flex w-full overflow-x-auto rounded-lg p-1 sm:w-auto"
         >
           {PRESETS.map((p) => (
             <button
@@ -203,7 +209,7 @@ export function PontoView({
               aria-selected={preset === p.value}
               onClick={() => setPreset(p.value)}
               className={cn(
-                "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors sm:flex-none",
+                "flex-1 rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors sm:flex-none",
                 preset === p.value
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",

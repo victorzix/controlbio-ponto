@@ -62,14 +62,14 @@ Guarda `ponto:ver_equipe` (senão `redirect("/ponto")`); carrega `listReportUser
 e `todayISODate()`; renderiza `<RelatoriosView users today />`.
 
 ### 3.2 `RelatoriosView` (`src/app/(app)/relatorios-view.tsx`, client)
-- Estado: `preset` (`week`|`month`|`custom`, default `month`), `customFrom/To`,
-  `selectedIds` (default = ids dos **ativos**).
+- Estado: `preset` (`previousMonth`|`week`|`month`|`custom`, default `month`),
+  `customFrom/To`, `selectedIds` (default = ids dos **ativos**).
 - `range` igual ao `PontoView`. React Query: key
   `["relatorios", range.from, range.to, [...selectedIds].sort()]`,
   `queryFn: fetchReport(range, selectedIds)`, `placeholderData: keepPreviousData`,
   `enabled: selectedIds.length > 0`.
 - Cabeçalho: título **"Relatórios"**.
-- Linha de filtros: segmented control (Semana/Mês/Intervalo) + `DateRangeField`
+- Linha de filtros: segmented control (Mês anterior/Semana/Mês/Intervalo) + `DateRangeField`
   (no custom) + `<UserMultiSelect>` (botão "Usuários (N)").
 - Conteúdo: se nenhum usuário selecionado → aviso "Selecione ao menos um usuário".
   Senão, para cada **mês** (bloco):

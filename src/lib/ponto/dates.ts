@@ -31,6 +31,17 @@ export function getMonthRange(todayIso: string): { from: string; to: string } {
   return { from: toISO(first), to: toISO(last) };
 }
 
+/** Intervalo do mês **anterior** (1º ao último dia) relativo a `todayIso`. */
+export function getPreviousMonthRange(
+  todayIso: string,
+): { from: string; to: string } {
+  const today = parseLocalDate(todayIso);
+  // mês - 1: o Date normaliza a virada de ano (ex.: jan → dez do ano anterior).
+  const first = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const last = new Date(today.getFullYear(), today.getMonth(), 0);
+  return { from: toISO(first), to: toISO(last) };
+}
+
 const weekdayFmt = new Intl.DateTimeFormat("pt-BR", { weekday: "long" });
 const fullFmt = new Intl.DateTimeFormat("pt-BR", {
   day: "numeric",

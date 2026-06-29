@@ -40,7 +40,7 @@
    - ✅ Esperado: **sem** seletor; vê só o próprio; CRUD do próprio normal.
 
 ### AC-06 — Período (CA-06)
-1. Com a equipe selecionada, alternar Semana/Mês/Intervalo.
+1. Com a equipe selecionada, alternar Mês anterior/Semana/Mês/Intervalo.
    - ✅ Esperado: a visão de equipe e os KPIs respeitam o período.
 
 ### AC-07 — Responsividade (CA-07)
