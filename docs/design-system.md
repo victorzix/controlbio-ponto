@@ -6,8 +6,8 @@
 
 | Campo         | Valor              |
 | ------------- | ------------------ |
-| Versão        | 1.10               |
-| Atualizado em | 2026-06-26         |
+| Versão        | 1.11               |
+| Atualizado em | 2026-06-29         |
 | Stack visual  | Tailwind CSS v4 · shadcn/ui (new-york) · lucide-react · motion |
 
 ---
@@ -184,7 +184,9 @@ referenciam sempre o **token semântico** (`bg-primary`, `text-muted-foreground`
   construção** (monta nós React, sem `dangerouslySetInnerHTML`; links só com esquema `http(s)`/`mailto`).
   Subset: negrito, itálico, código, links, listas, parágrafos. Não usamos editores WYSIWYG/libs externas.
 - **Formulários:** padrão `useActionState` + Server Action (sem react-hook-form). Erros por campo inline.
-- **Feedback:** usar `sonner` (toast) para sucesso/erro de ações; erro de formulário inline abaixo do campo.
+- **Feedback:** ver §10 (Estados de erro) para a convenção completa. Em resumo: sucesso de ação →
+  `toast.success`; erro de campo/validação e erro de negócio retornado → **inline** no formulário; erro
+  **inesperado** (Server Action que lança) → `toast.error` via `notifyUnexpectedError`.
 - **Avatar:** componente próprio `src/components/ui/avatar.tsx` — círculo com as
   **iniciais** do nome (puro, sem radix; o avatar do shadcn depende de radix e o
   registry trava — ver acima). Default `size-8 rounded-full` com tokens da sidebar
@@ -255,7 +257,28 @@ registry trava neste ambiente (ver §6).
   `.dark` é aplicada por um **script inline** no `layout.tsx` **antes da
   hidratação**; o store só reflete/atualiza o valor após montar.
 
-## 10. Como evoluir este documento
+## 10. Estados de erro
+
+Nenhum erro pode falhar em silêncio. Convenção (spec `008-feedback-de-erros`):
+
+- **Erro de campo/validação → inline.** `formState.errors[campo]` abaixo do campo, em
+  `text-destructive text-sm` (padrão dos formulários RHF+Zod, `CLAUDE.md` §7).
+- **Erro de negócio retornado (`{ error }`) → inline no root** do formulário (`<p role="alert">`),
+  perto da ação. Ex.: "Usuário ou senha inválidos." **Não** vira toast.
+- **Erro inesperado (a Server Action lança/rejeita) → `toast.error`.** Sempre via
+  `notifyUnexpectedError` (`src/lib/forms/notify-error.ts`), que registra no console e mostra a
+  mensagem genérica `UNEXPECTED_ERROR_MESSAGE`. Use no `catch` de **todo** `onValid`.
+- **`redirect()` do framework não é erro:** Server Actions que redirecionam
+  (`requirePermission`/`requireUser`) são tratadas no boundary do Next e não rejeitam no client.
+- **Páginas de erro do App Router:**
+  - `src/app/error.tsx` — boundary de render das rotas, com botão "Tentar de novo" (`reset()`).
+  - `src/app/global-error.tsx` — colapso do root layout; autossuficiente (importa o próprio
+    `globals.css`, sem providers/toaster/fontes).
+  - `src/app/not-found.tsx` — 404 no padrão, com "Voltar ao início".
+- **Ícone + título + descrição curta** centralizados (círculo `size-12`: `bg-destructive/10`
+  para erro, `bg-muted` para 404). Ações com alvo de toque `h-11`.
+
+## 11. Como evoluir este documento
 
 1. Tomou uma decisão visual nova (cor, token, padrão, animação)? **Documente aqui** na seção certa e
    bump a versão/data no topo.

@@ -10,6 +10,7 @@ import {
   deriveUsernameFromName,
   normalizeUsernameInput,
 } from "@/lib/auth/username";
+import { notifyUnexpectedError } from "@/lib/forms/notify-error";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -72,21 +73,25 @@ export function UserForm({
   });
 
   async function onValid(data: FormValues) {
-    const res =
-      mode === "create"
-        ? await createUser(data)
-        : await updateUser(user!.id, data);
+    try {
+      const res =
+        mode === "create"
+          ? await createUser(data)
+          : await updateUser(user!.id, data);
 
-    if (res.ok) {
-      onSuccess();
-      return;
-    }
-    if (res.fieldErrors) {
-      for (const [field, message] of Object.entries(res.fieldErrors)) {
-        setError(field as keyof FormValues, { message });
+      if (res.ok) {
+        onSuccess();
+        return;
       }
-    } else if (res.error) {
-      setError("root", { message: res.error });
+      if (res.fieldErrors) {
+        for (const [field, message] of Object.entries(res.fieldErrors)) {
+          setError(field as keyof FormValues, { message });
+        }
+      } else if (res.error) {
+        setError("root", { message: res.error });
+      }
+    } catch (err) {
+      notifyUnexpectedError(err);
     }
   }
 
