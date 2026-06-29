@@ -8,6 +8,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { LogIn } from "lucide-react";
 import { loginAction } from "@/lib/auth/actions";
 import { loginSchema } from "@/lib/auth/validation";
+import { notifyUnexpectedError } from "@/lib/forms/notify-error";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,14 +37,19 @@ export function LoginForm({ redirectTo }: { redirectTo?: string }) {
   });
 
   async function onValid(data: LoginValues) {
-    const res = await loginAction(data);
-    if (res.ok) {
-      const dest = redirectTo && redirectTo.startsWith("/") ? redirectTo : "/";
-      router.push(dest);
-      router.refresh();
-      return;
+    try {
+      const res = await loginAction(data);
+      if (res.ok) {
+        const dest =
+          redirectTo && redirectTo.startsWith("/") ? redirectTo : "/";
+        router.push(dest);
+        router.refresh();
+        return;
+      }
+      setError("root", { message: res.error ?? "Usuário ou senha inválidos." });
+    } catch (err) {
+      notifyUnexpectedError(err);
     }
-    setError("root", { message: res.error ?? "Usuário ou senha inválidos." });
   }
 
   return (
