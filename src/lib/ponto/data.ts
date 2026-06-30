@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import { db } from "@/db";
 import { registrosPonto, users } from "@/db/schema";
+import type { Project } from "./validation";
 
 /** Intervalo de datas (inclusivo), em "YYYY-MM-DD". */
 export type DateRange = { from: string; to: string };
@@ -12,6 +13,7 @@ export type PontoEntry = {
   workedMinutes: number;
   description: string;
   link: string | null;
+  project: Project;
   createdAt: Date;
 };
 
@@ -40,6 +42,7 @@ export async function listOwnEntries(
       workedMinutes: registrosPonto.workedMinutes,
       description: registrosPonto.description,
       link: registrosPonto.link,
+      project: registrosPonto.project,
       createdAt: registrosPonto.createdAt,
     })
     .from(registrosPonto)
@@ -74,6 +77,7 @@ export async function listEntriesByUsers(
       workedMinutes: registrosPonto.workedMinutes,
       description: registrosPonto.description,
       link: registrosPonto.link,
+      project: registrosPonto.project,
       createdAt: registrosPonto.createdAt,
       userId: registrosPonto.userId,
       userName: users.name,

@@ -75,6 +75,7 @@ export type ExportEntry = {
   title: string;
   workedMinutes: number;
   description: string;
+  project: "dw" | "labphase";
 };
 
 /**
@@ -97,6 +98,7 @@ export async function listEntriesForExport(
       title: registrosPonto.title,
       workedMinutes: registrosPonto.workedMinutes,
       description: registrosPonto.description,
+      project: registrosPonto.project,
     })
     .from(registrosPonto)
     .innerJoin(users, eq(registrosPonto.userId, users.id))

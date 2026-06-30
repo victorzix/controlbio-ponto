@@ -11,6 +11,8 @@ import {
   text,
 } from "drizzle-orm/pg-core";
 
+export const projectEnum = pgEnum("project", ["dw", "labphase"]);
+
 /**
  * Papéis (roles) do sistema.
  *
@@ -107,6 +109,7 @@ export const registrosPonto = pgTable(
     description: text("description").notNull(),
     // Link opcional da tarefa (ex.: ClickUp). Quando presente, é http(s).
     link: varchar("link", { length: 2048 }),
+    project: projectEnum("project").notNull().default("labphase"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

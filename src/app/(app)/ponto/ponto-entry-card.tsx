@@ -30,6 +30,11 @@ export function PontoEntryCard({
 }: Props) {
   const actions = (
     <div className="flex shrink-0 items-center gap-1">
+      {entry.project === "dw" ? (
+        <Badge variant="outline" className="shrink-0 text-xs">
+          DW
+        </Badge>
+      ) : null}
       <Badge variant="secondary">
         {formatWorkedMinutes(entry.workedMinutes)}
       </Badge>

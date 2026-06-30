@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+export type Project = "dw" | "labphase";
+
+export const PROJECT_OPTIONS: { value: Project; label: string }[] = [
+  { value: "labphase", label: "Labphase" },
+  { value: "dw", label: "DW" },
+];
+
 /** Data de hoje (horário local do servidor) como YYYY-MM-DD. */
 export function todayISODate(): string {
   const now = new Date();
@@ -32,6 +39,8 @@ const descriptionField = z
   .trim()
   .min(1, "Informe a descrição.")
   .max(5000, "Descrição muito longa (máx. 5000 caracteres).");
+
+const projectField = z.enum(["dw", "labphase"]);
 
 /** Link opcional (ex.: tarefa no ClickUp). Vazio = sem link. */
 const optionalLinkField = z
@@ -67,6 +76,7 @@ export const createEntrySchema = z
     minutes: minutesField,
     description: descriptionField,
     link: optionalLinkField,
+    project: projectField,
   })
   .refine(hasTime, {
     message: "Informe um tempo trabalhado maior que zero.",
@@ -86,6 +96,7 @@ export const updateEntrySchema = z
     minutes: minutesField,
     description: descriptionField,
     link: optionalLinkField,
+    project: projectField,
   })
   .refine(hasTime, {
     message: "Informe um tempo trabalhado maior que zero.",

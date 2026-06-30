@@ -93,7 +93,7 @@ export async function createEntry(input: unknown): Promise<PontoActionState> {
     return { fieldErrors: collectFieldErrors(parsed.error.issues) };
   }
 
-  const { title, workDate, hours, minutes, description, link } = parsed.data;
+  const { title, workDate, hours, minutes, description, link, project } = parsed.data;
   const linkValue = link && link.length > 0 ? link : null;
   const totalMinutes = hours * 60 + minutes;
 
@@ -110,6 +110,7 @@ export async function createEntry(input: unknown): Promise<PontoActionState> {
       workedMinutes: dayMinutes,
       description,
       link: linkValue,
+      project,
     });
     remaining -= dayMinutes;
     dayOffset += 1;
@@ -140,7 +141,7 @@ export async function updateEntry(
     return { fieldErrors: collectFieldErrors(parsed.error.issues) };
   }
 
-  const { title, workDate, hours, minutes, description, link } = parsed.data;
+  const { title, workDate, hours, minutes, description, link, project } = parsed.data;
 
   const updated = await db
     .update(registrosPonto)
@@ -150,6 +151,7 @@ export async function updateEntry(
       workedMinutes: hours * 60 + minutes,
       description,
       link: link && link.length > 0 ? link : null,
+      project,
     })
     .where(and(eq(registrosPonto.id, id), eq(registrosPonto.userId, user.id)))
     .returning({ id: registrosPonto.id });
@@ -181,6 +183,7 @@ export async function duplicateEntry(id: string): Promise<PontoActionState> {
       workedMinutes: registrosPonto.workedMinutes,
       description: registrosPonto.description,
       link: registrosPonto.link,
+      project: registrosPonto.project,
     })
     .from(registrosPonto)
     .where(and(eq(registrosPonto.id, id), eq(registrosPonto.userId, user.id)))
@@ -198,6 +201,7 @@ export async function duplicateEntry(id: string): Promise<PontoActionState> {
     workedMinutes: original.workedMinutes,
     description: original.description,
     link: original.link,
+    project: original.project,
   });
 
   return { ok: true, created: 1 };

@@ -19,6 +19,7 @@ export function buildReportWorkbook(entries: ExportEntry[]): Buffer {
   // Cabeçalho (negrito) — linha 1.
   rows.push([
     { t: "s", v: "Usuário", bold: true },
+    { t: "s", v: "Projeto", bold: true },
     { t: "s", v: "Data", bold: true },
     { t: "s", v: "Título", bold: true },
     { t: "s", v: "Horas", bold: true },
@@ -39,6 +40,7 @@ export function buildReportWorkbook(entries: ExportEntry[]): Buffer {
 
     rows.push([
       { t: "s", v: e.userName },
+      { t: "s", v: e.project === "dw" ? "DW" : "Labphase" },
       { t: "d", v: e.workDate },
       { t: "s", v: e.title },
       { t: "n", v: round2(e.workedMinutes / 60) },
@@ -49,7 +51,7 @@ export function buildReportWorkbook(entries: ExportEntry[]): Buffer {
 
   // Linha 1 = cabeçalho; dados em 2..(1+N). O filtro cobre só cabeçalho + dados.
   const lastDataRow = 1 + entries.length;
-  const autoFilterRef = `A1:F${Math.max(1, lastDataRow)}`;
+  const autoFilterRef = `A1:G${Math.max(1, lastDataRow)}`;
 
   // Total geral (fora do filtro), com SUBTOTAL para acompanhar o filtro.
   if (entries.length > 0) {
@@ -57,15 +59,16 @@ export function buildReportWorkbook(entries: ExportEntry[]): Buffer {
       { t: "s", v: "Total geral", bold: true },
       { t: "e" },
       { t: "e" },
+      { t: "e" },
       {
         t: "f",
-        f: `SUBTOTAL(9,D2:D${lastDataRow})`,
+        f: `SUBTOTAL(9,E2:E${lastDataRow})`,
         v: round2(grandMinutes / 60),
         bold: true,
       },
       {
         t: "f",
-        f: `SUBTOTAL(9,E2:E${lastDataRow})`,
+        f: `SUBTOTAL(9,F2:F${lastDataRow})`,
         v: round2(grandValueCents / 100),
         bold: true,
       },
@@ -75,7 +78,7 @@ export function buildReportWorkbook(entries: ExportEntry[]): Buffer {
 
   return buildXlsx({
     name: "Horas",
-    colWidths: [22, 12, 30, 8, 18, 60],
+    colWidths: [22, 12, 12, 30, 8, 18, 60],
     rows,
     autoFilterRef,
   });

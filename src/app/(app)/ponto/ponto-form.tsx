@@ -12,7 +12,10 @@ import {
   createEntrySchema,
   updateEntrySchema,
   MAX_SPLIT_HOURS,
+  PROJECT_OPTIONS,
+  type Project,
 } from "@/lib/ponto/validation";
+import { cn } from "@/lib/utils";
 import { notifyUnexpectedError } from "@/lib/forms/notify-error";
 import { MarkdownEditor } from "./markdown-editor";
 import { Button } from "@/components/ui/button";
@@ -35,6 +38,7 @@ export type PontoEntryFormData = {
   workedMinutes: number;
   description: string;
   link: string | null;
+  project: Project;
 };
 
 type PontoFormProps = {
@@ -83,6 +87,7 @@ export function PontoForm({
       minutes: entry ? entry.workedMinutes % 60 : 0,
       description: entry?.description ?? "",
       link: entry?.link ?? "",
+      project: entry?.project ?? "labphase",
     },
   });
 
@@ -252,6 +257,40 @@ export function PontoForm({
             {errors.description.message}
           </p>
         ) : null}
+      </div>
+
+      {/* Projeto */}
+      <div className="flex flex-col gap-2">
+        <Label>Projeto</Label>
+        <Controller
+          control={control}
+          name="project"
+          render={({ field }) => (
+            <div
+              role="radiogroup"
+              aria-label="Projeto"
+              className="bg-muted inline-flex rounded-lg p-1"
+            >
+              {PROJECT_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={field.value === opt.value}
+                  onClick={() => field.onChange(opt.value)}
+                  className={cn(
+                    "rounded-md px-4 py-1.5 text-sm font-medium transition-colors",
+                    field.value === opt.value
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
+        />
       </div>
 
       {/* Link (opcional) — ex.: tarefa no ClickUp */}

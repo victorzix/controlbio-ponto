@@ -11,7 +11,11 @@ import {
   getPreviousMonthRange,
   getWeekRange,
 } from "@/lib/ponto/dates";
-import { formatWorkedMinutes } from "@/lib/ponto/validation";
+import {
+  formatWorkedMinutes,
+  PROJECT_OPTIONS,
+  type Project,
+} from "@/lib/ponto/validation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DateRangeField } from "@/components/ui/date-range-field";
@@ -56,6 +60,7 @@ function buildGroups(entries: PontoEntry[]): DateGroup[] {
       workedMinutes: e.workedMinutes,
       description: e.description,
       link: e.link,
+      project: e.project,
     });
     tg.totalMinutes += e.workedMinutes;
   }
@@ -131,6 +136,7 @@ export function PontoView({
   const [customTo, setCustomTo] = useState(today);
   // Default: só o próprio usuário (RF: ao abrir, é o dele).
   const [selectedIds, setSelectedIds] = useState<string[]>([userId]);
+  const [projectFilter, setProjectFilter] = useState<"all" | Project>("all");
 
   const range = useMemo(() => {
     if (preset === "previousMonth") return getPreviousMonthRange(today);
@@ -238,6 +244,33 @@ export function PontoView({
             onChange={setSelectedIds}
           />
         ) : null}
+
+        {/* Filtro de projeto */}
+        <div
+          role="radiogroup"
+          aria-label="Projeto"
+          className="bg-muted inline-flex w-full overflow-x-auto rounded-lg p-1 sm:w-auto"
+        >
+          {([{ value: "all", label: "Todos" }, ...PROJECT_OPTIONS] as const).map(
+            (p) => (
+              <button
+                key={p.value}
+                type="button"
+                role="radio"
+                aria-selected={projectFilter === p.value}
+                onClick={() => setProjectFilter(p.value as "all" | Project)}
+                className={cn(
+                  "flex-1 rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors sm:flex-none",
+                  projectFilter === p.value
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {p.label}
+              </button>
+            ),
+          )}
+        </div>
       </div>
 
       {useOwn ? (
@@ -248,13 +281,14 @@ export function PontoView({
           canEdit={canEdit}
           canDelete={canDelete}
           canReplicate={canReplicate}
+          projectFilter={projectFilter}
         />
       ) : selectedIds.length === 0 ? (
         <div className="text-muted-foreground rounded-lg border border-dashed py-10 text-center text-sm">
           Selecione ao menos um usuário.
         </div>
       ) : (
-        <TeamContent query={teamQuery} today={today} />
+        <TeamContent query={teamQuery} today={today} projectFilter={projectFilter} />
       )}
     </div>
   );
@@ -268,6 +302,7 @@ function OwnContent({
   canEdit,
   canDelete,
   canReplicate,
+  projectFilter,
 }: {
   query: { data?: PontoEntry[]; isPending: boolean };
   today: string;
@@ -275,8 +310,11 @@ function OwnContent({
   canEdit: boolean;
   canDelete: boolean;
   canReplicate: boolean;
+  projectFilter: "all" | Project;
 }) {
-  const entries = query.data ?? [];
+  const all = query.data ?? [];
+  const entries =
+    projectFilter === "all" ? all : all.filter((e) => e.project === projectFilter);
   const totalMinutes = entries.reduce((s, e) => s + e.workedMinutes, 0);
   const groups = buildGroups(entries);
 
@@ -320,13 +358,21 @@ function OwnContent({
 function TeamContent({
   query,
   today,
+  projectFilter,
 }: {
   query: { data?: TeamEntry[]; isPending: boolean };
   today: string;
+  projectFilter: "all" | Project;
 }) {
+  const filtered =
+    projectFilter === "all"
+      ? (query.data ?? [])
+      : (query.data ?? []).filter((e) => e.project === projectFilter);
+
   const sections = useMemo(
-    () => buildUserSections(query.data ?? []),
-    [query.data],
+    () => buildUserSections(filtered),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [query.data, projectFilter],
   );
 
   const totalMinutes = sections.reduce((s, u) => s + u.totalMinutes, 0);
