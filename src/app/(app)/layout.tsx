@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 import { AppSidebar } from "@/components/app-sidebar";
+import { TrackingController } from "./tracking-controller";
 
 /**
  * Layout da área interna. Guarda autoritativa de sessão (RF-06): valida no banco
@@ -30,6 +31,7 @@ export default async function AppLayout({
           {children}
         </main>
       </div>
+      {canVerPonto ? <TrackingController /> : null}
     </div>
   );
 }

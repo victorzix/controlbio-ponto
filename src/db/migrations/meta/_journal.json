@@ -64,6 +64,13 @@
       "when": 1782830796120,
       "tag": "0008_loose_abomination",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784568457503,
+      "tag": "0009_far_fallen_one",
+      "breakpoints": true
     }
   ]
 }

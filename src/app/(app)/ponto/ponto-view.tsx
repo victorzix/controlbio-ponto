@@ -22,6 +22,7 @@ import { DateRangeField } from "@/components/ui/date-range-field";
 import { cn } from "@/lib/utils";
 import { UserMultiSelect } from "../user-multiselect";
 import { NovoPontoDialog } from "./novo-ponto-dialog";
+import { TrackingPanel } from "./tracking-panel";
 import { PontoKpis, estimateCents } from "./ponto-kpis";
 import { PontoList, type DateGroup } from "./ponto-list";
 
@@ -257,7 +258,7 @@ export function PontoView({
                 key={p.value}
                 type="button"
                 role="radio"
-                aria-selected={projectFilter === p.value}
+                aria-checked={projectFilter === p.value}
                 onClick={() => setProjectFilter(p.value as "all" | Project)}
                 className={cn(
                   "flex-1 rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors sm:flex-none",
@@ -318,38 +319,43 @@ function OwnContent({
   const totalMinutes = entries.reduce((s, e) => s + e.workedMinutes, 0);
   const groups = buildGroups(entries);
 
-  if (query.isPending) {
-    return (
-      <p className="text-muted-foreground py-8 text-center text-sm">
-        Carregando...
-      </p>
-    );
-  }
-
   return (
     <>
-      <PontoKpis
-        totalMinutes={totalMinutes}
-        valueCents={estimateCents(totalMinutes, hourlyRateCents)}
-        hint={
-          hourlyRateCents != null
-            ? `${brlFmt.format(hourlyRateCents / 100)}/h`
-            : "defina o valor/hora no usuário"
-        }
-      />
-      {entries.length === 0 ? (
-        <div className="text-muted-foreground rounded-lg border border-dashed py-10 text-center text-sm">
-          Nenhum registro no período.
-        </div>
+      {/* KPIs logo abaixo dos filtros. */}
+      {query.isPending ? (
+        <p className="text-muted-foreground py-8 text-center text-sm">
+          Carregando...
+        </p>
       ) : (
-        <PontoList
-          groups={groups}
-          today={today}
-          canEdit={canEdit}
-          canDelete={canDelete}
-          canReplicate={canReplicate}
+        <PontoKpis
+          totalMinutes={totalMinutes}
+          valueCents={estimateCents(totalMinutes, hourlyRateCents)}
+          hint={
+            hourlyRateCents != null
+              ? `${brlFmt.format(hourlyRateCents / 100)}/h`
+              : "defina o valor/hora no usuário"
+          }
         />
       )}
+
+      {/* Cronômetro (spec 010) — abaixo dos KPIs, acima da lista. */}
+      <TrackingPanel />
+
+      {!query.isPending ? (
+        entries.length === 0 ? (
+          <div className="text-muted-foreground rounded-lg border border-dashed py-10 text-center text-sm">
+            Nenhum registro no período.
+          </div>
+        ) : (
+          <PontoList
+            groups={groups}
+            today={today}
+            canEdit={canEdit}
+            canDelete={canDelete}
+            canReplicate={canReplicate}
+          />
+        )
+      ) : null}
     </>
   );
 }

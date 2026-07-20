@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   pgEnum,
@@ -6,6 +7,7 @@ import {
   boolean,
   timestamp,
   index,
+  uniqueIndex,
   integer,
   date,
   text,
@@ -119,3 +121,64 @@ export const registrosPonto = pgTable(
 
 export type RegistroPonto = typeof registrosPonto.$inferSelect;
 export type NewRegistroPonto = typeof registrosPonto.$inferInsert;
+
+/**
+ * Tracking de tempo (cronômetro de ponto) — spec 010.
+ *
+ * É um **rascunho** persistido: o usuário inicia informando só título e projeto
+ * e o tempo é derivado dos `time_tracking_segments` (quando começou/terminou
+ * cada trecho). `UNIQUE(user_id)` garante **no máximo um** cronômetro ativo por
+ * usuário (RN-01). Ao encerrar/finalizar, cada segmento vira um `registros_ponto`
+ * e o rascunho é apagado.
+ */
+export const timeTrackings = pgTable("time_trackings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 120 }).notNull(),
+  project: projectEnum("project").notNull().default("labphase"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+export type TimeTracking = typeof timeTrackings.$inferSelect;
+export type NewTimeTracking = typeof timeTrackings.$inferInsert;
+
+/**
+ * Segmentos (trechos play→pause) de um tracking.
+ *
+ * `ended_at IS NULL` = segmento **aberto** (o cronômetro está rodando). O índice
+ * único parcial garante **no máximo um** segmento aberto por tracking (RN-05/16).
+ * O tempo total do tracking é `Σ (ended_at ?? agora) − started_at`.
+ */
+export const timeTrackingSegments = pgTable(
+  "time_tracking_segments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    trackingId: uuid("tracking_id")
+      .notNull()
+      .references(() => timeTrackings.id, { onDelete: "cascade" }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("time_tracking_segments_tracking_idx").on(t.trackingId),
+    // No máximo um segmento aberto (ended_at nulo) por tracking.
+    uniqueIndex("time_tracking_segments_one_open_idx")
+      .on(t.trackingId)
+      .where(sql`${t.endedAt} is null`),
+  ],
+);
+
+export type TimeTrackingSegment = typeof timeTrackingSegments.$inferSelect;
+export type NewTimeTrackingSegment = typeof timeTrackingSegments.$inferInsert;
