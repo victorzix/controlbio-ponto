@@ -12,6 +12,7 @@ const ok = {
   hours: 8,
   minutes: 30,
   description: "fiz coisas",
+  project: "labphase" as const,
 };
 
 describe("createEntrySchema", () => {
