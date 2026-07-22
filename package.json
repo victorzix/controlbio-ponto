@@ -24,7 +24,7 @@
     "drizzle-orm": "^0.45.2",
     "lucide-react": "^1.21.0",
     "motion": "^12.34.2",
-    "next": "16.2.4",
+    "next": "^16.2.11",
     "postgres": "^3.4.9",
     "react": "19.2.4",
     "react-day-picker": "^9.4.0",
@@ -40,12 +40,19 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "drizzle-kit": "^0.31.10",
+    "drizzle-kit": "^0.18.1",
     "eslint": "^9",
     "eslint-config-next": "16.2.4",
     "tailwindcss": "^4",
     "tsx": "^4.22.4",
     "typescript": "^5",
     "vitest": "^4.1.9"
+  },
+  "allowScripts": {
+    "esbuild@0.18.20": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.1": true,
+    "sharp@0.34.5": true,
+    "unrs-resolver@1.12.2": true
   }
 }
