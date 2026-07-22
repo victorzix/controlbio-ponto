@@ -6,7 +6,7 @@
 # ============================================================
 
 # Atualize periodicamente para a última LTS do Node.
-ARG NODE_VERSION=24.13.0-slim
+ARG NODE_VERSION=26.3.0-slim
 
 # ------------------------------------------------------------
 # Stage 1: dependências (cacheável)
