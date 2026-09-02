@@ -35,4 +35,18 @@ describe("connectClickUpSchema", () => {
       expect(result.data.token).toBe("pk_12345678_ABCDEFGHIJKLMNOP");
     }
   });
+
+  it("recusa token maior que 200 caracteres (barra aqui, não como erro de banco)", () => {
+    const result = connectClickUpSchema.safeParse({
+      token: "pk_" + "a".repeat(201),
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("aceita um token de exatamente 200 caracteres", () => {
+    const result = connectClickUpSchema.safeParse({
+      token: "pk_" + "a".repeat(197),
+    });
+    expect(result.success).toBe(true);
+  });
 });

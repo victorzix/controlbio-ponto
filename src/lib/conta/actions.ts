@@ -175,10 +175,17 @@ export async function connectClickUp(input: unknown): Promise<ActionState> {
     };
   }
 
-  await db
-    .update(users)
-    .set({ clickupTokenEnc: tokenEnc, clickupTokenLabel: label })
-    .where(eq(users.id, user.id));
+  try {
+    await db
+      .update(users)
+      .set({ clickupTokenEnc: tokenEnc, clickupTokenLabel: label })
+      .where(eq(users.id, user.id));
+  } catch {
+    // Nunca logar `err` aqui: numa falha de banco (ex.: violação de tamanho de
+    // coluna) a mensagem do driver pode ecoar o valor rejeitado — que é a
+    // CIFRA do token, não o texto em claro, mas ainda assim não deve vazar.
+    return { error: "Erro ao salvar. Tente novamente." };
+  }
 
   return { ok: true };
 }
@@ -190,10 +197,14 @@ export async function connectClickUp(input: unknown): Promise<ActionState> {
 export async function disconnectClickUp(): Promise<ActionState> {
   const user = await requireUser();
 
-  await db
-    .update(users)
-    .set({ clickupTokenEnc: null, clickupTokenLabel: null })
-    .where(eq(users.id, user.id));
+  try {
+    await db
+      .update(users)
+      .set({ clickupTokenEnc: null, clickupTokenLabel: null })
+      .where(eq(users.id, user.id));
+  } catch {
+    return { error: "Erro ao salvar. Tente novamente." };
+  }
 
   return { ok: true };
 }
