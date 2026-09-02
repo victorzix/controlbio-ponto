@@ -62,6 +62,10 @@ function buildGroups(entries: PontoEntry[]): DateGroup[] {
       description: e.description,
       link: e.link,
       project: e.project,
+      clickupTaskId: e.clickupTaskId,
+      clickupTaskUrl: e.clickupTaskUrl,
+      clickupSyncStatus: e.clickupSyncStatus,
+      clickupSprintSource: e.clickupSprintSource,
     });
     tg.totalMinutes += e.workedMinutes;
   }

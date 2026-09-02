@@ -1,17 +1,23 @@
 "use server";
 
 /**
- * Server Actions da tela `/integracao` (spec 011, Tarefa 13). **Toda** ação
- * exige `requirePermission("integracao:configurar")` antes de qualquer coisa —
- * é a única porta de entrada para ler/escrever a configuração do ClickUp.
+ * Server Actions da tela `/integracao` (spec 011, Tarefa 13). Quase **toda**
+ * ação exige `requirePermission("integracao:configurar")` antes de qualquer
+ * coisa — é a única porta de entrada para ler/escrever a configuração do
+ * ClickUp. A exceção é `retryEntrySync` (Tarefa 16), que vive aqui por ser
+ * também uma ação de ClickUp, mas serve o card do **ponto** — guarda por
+ * `ponto:registrar` e por dono, não por `integracao:configurar`.
  */
+import { and, desc, eq } from "drizzle-orm";
+import { db } from "@/db";
+import { clickupSyncJobs, registrosPonto } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/guard";
 import type { Project } from "@/lib/ponto/validation";
 import { todayBrasiliaISO } from "@/lib/tz";
 import { getServiceClient, getProjectConfigForEdit } from "./data";
 import { upsertProjectConfig, type ProjectConfig } from "./config";
 import { listMembers, type ClickUpMember } from "./members";
-import { countFailedJobs } from "./queue";
+import { countFailedJobs, retryJob } from "./queue";
 import { pickSprintList, type ClickUpList, type SprintPick } from "./sprint";
 import { findMissingConfiguredStatuses, type ClickUpStatus } from "./status";
 import { projectConfigSchema } from "./validation";
@@ -285,4 +291,54 @@ export async function testProjectConfig(
       error: err instanceof Error ? err.message : "Erro ao consultar o ClickUp.",
     };
   }
+}
+
+export type RetrySyncResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Botão "reenviar" do badge de sincronização no card do ponto (Tarefa 16,
+ * **RF-14**). Reagenda o job `failed` mais recente do registro.
+ *
+ * Segurança (**RN-14**): confere que o registro é do **próprio usuário da
+ * sessão** antes de tocar em qualquer job — a mesma proteção por dono que
+ * `updateEntry` usa (`src/lib/ponto/actions.ts`, `where(id, userId)`). O `id`
+ * chega do client; nunca confiamos nele sozinho.
+ */
+export async function retryEntrySync(entryId: string): Promise<RetrySyncResult> {
+  const user = await requirePermission("ponto:registrar");
+
+  if (typeof entryId !== "string" || !entryId) {
+    return { ok: false, error: "Registro inválido." };
+  }
+
+  // Só avança se o registro existir E pertencer a quem está pedindo o reenvio
+  // — igual a `updateEntry`, nunca um `WHERE id = ...` sozinho.
+  const owned = await db
+    .select({ id: registrosPonto.id })
+    .from(registrosPonto)
+    .where(and(eq(registrosPonto.id, entryId), eq(registrosPonto.userId, user.id)))
+    .limit(1);
+
+  if (!owned[0]) {
+    return { ok: false, error: "Registro não encontrado." };
+  }
+
+  // O job `failed` mais recente do registro — normalmente há só um (o envio
+  // original ou a última correção), mas por segurança pega o mais recente.
+  const jobs = await db
+    .select({ id: clickupSyncJobs.id })
+    .from(clickupSyncJobs)
+    .where(
+      and(eq(clickupSyncJobs.entryId, entryId), eq(clickupSyncJobs.status, "failed")),
+    )
+    .orderBy(desc(clickupSyncJobs.updatedAt))
+    .limit(1);
+
+  const jobId = jobs[0]?.id;
+  if (!jobId) {
+    return { ok: false, error: "Não há envio com falha para reenviar." };
+  }
+
+  await retryJob(jobId);
+  return { ok: true };
 }

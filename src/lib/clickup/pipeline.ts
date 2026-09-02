@@ -30,7 +30,7 @@ import type { ProjectConfig } from "./config";
 import { ClickUpError } from "./errors";
 import type { deleteTaskLink, findTaskLink, upsertTaskLink } from "./links";
 import type { JobStage } from "./queue";
-import { pickSprintList } from "./sprint";
+import { pickSprintList, type SprintPick } from "./sprint";
 import { classifyStatus, shouldMoveToInProgress } from "./status";
 import { normalizeTitle } from "./title";
 
@@ -67,13 +67,16 @@ export type PipelineDeps = {
   saveProgress: (jobId: string, patch: StagePatch) => Promise<void>;
   /**
    * Grava a tarefa resolvida no próprio registro de ponto (design §4.6) — é o
-   * que dá ao card do ponto o link para a tarefa (RF-13). Sobrescrita das
-   * mesmas duas colunas, então repetir num retry é inofensivo.
+   * que dá ao card do ponto o link para a tarefa (RF-13) e, com `sprintSource`,
+   * o aviso de "sincronizado sem sprint" quando a Lista escolhida foi o
+   * backlog (RF-07, CA-21). Sobrescrita das mesmas colunas, então repetir num
+   * retry é inofensivo.
    */
   saveEntryTask: (
     entryId: string,
     taskId: string,
     taskUrl: string,
+    sprintSource: SprintPick["source"],
   ) => Promise<void>;
   personalToken: (userId: string) => Promise<string | null>;
 };
@@ -126,16 +129,17 @@ async function resolveTask(
   assignee: number,
   deps: PipelineDeps,
   ctx: RunContext,
-): Promise<{ id: string; url: string }> {
+): Promise<{ id: string; url: string; source: SprintPick["source"] }> {
   const tituloNormalizado = normalizeTitle(entry.title);
 
   const lists = await deps.client.getLists(config.folderId);
-  const destino = pickSprintList(
+  const pick = pickSprintList(
     lists,
     entry.workDate,
     config.sprintDateFormat,
     config.backlogListId,
-  ).listId;
+  );
+  const destino = pick.listId;
 
   // 1. Índice local — o caminho comum, sem gastar requisição de busca. Só vale
   // quando o vínculo JÁ está na Lista de destino. Se a sprint virou, o atalho é
@@ -151,7 +155,7 @@ async function resolveTask(
     // inofensivo. O status NÃO é tocado aqui — sem reler a tarefa não sabemos
     // se ela está parada, e na dúvida não se mexe no board (RN-02).
     await deps.client.updateTask(link.clickupTaskId, { addAssignees: [assignee] });
-    return { id: link.clickupTaskId, url: link.clickupTaskUrl };
+    return { id: link.clickupTaskId, url: link.clickupTaskUrl, source: pick.source };
   }
 
   // 2. Busca no ClickUp — a tarefa pode ter nascido no planejamento da sprint,
@@ -195,7 +199,7 @@ async function resolveTask(
       clickupTaskUrl: existente.url,
       sprintListId: destino,
     });
-    return { id: existente.id, url: existente.url };
+    return { id: existente.id, url: existente.url, source: pick.source };
   }
 
   // 3. Cria. Nunca escreve estimativa de tempo (RN-10) — `CreateTaskInput` nem
@@ -216,7 +220,7 @@ async function resolveTask(
     clickupTaskUrl: nova.url,
     sprintListId: destino,
   });
-  return { id: nova.id, url: nova.url };
+  return { id: nova.id, url: nova.url, source: pick.source };
 }
 
 /**
@@ -273,7 +277,12 @@ async function runStages(
     // Antes de avançar o stage, não depois: se esta gravação falhar, o retry
     // refaz o `resolve` (que converge para a mesma tarefa) e tenta de novo.
     // Depois do avanço, o ponto ficaria para sempre sem o link da tarefa.
-    await deps.saveEntryTask(entry.id, tarefaResolvida.id, tarefaResolvida.url);
+    await deps.saveEntryTask(
+      entry.id,
+      tarefaResolvida.id,
+      tarefaResolvida.url,
+      tarefaResolvida.source,
+    );
     await deps.saveProgress(job.id, { stage: "comment", clickupTaskId: taskId });
     stage = "comment";
     ctx.stage = stage;

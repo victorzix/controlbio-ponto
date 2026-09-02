@@ -156,6 +156,13 @@ export const registrosPonto = pgTable(
     clickupSyncStatus: clickupSyncStatus("clickup_sync_status")
       .notNull()
       .default("pending"),
+    // Como o destino do envio foi decidido (`pickSprintList`, spec 011 RF-07):
+    // 'list_date' | 'list_name' | 'backlog'. Nulo enquanto não sincronizado.
+    // Sinaliza na UI quando o ponto caiu no backlog por falta de sprint
+    // correspondente ao dia (CA-21) — não é enum porque o valor espelha
+    // `SprintPick["source"]` de `lib/clickup/sprint.ts`, cuja fonte da verdade
+    // já é o tipo TypeScript, não o banco.
+    clickupSprintSource: varchar("clickup_sprint_source", { length: 16 }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

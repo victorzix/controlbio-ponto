@@ -250,6 +250,7 @@ describe("runJob — etapa resolve", () => {
       "e1",
       "t5",
       "https://app.clickup.com/t/t5",
+      "list_date",
     );
   });
 
@@ -269,6 +270,7 @@ describe("runJob — etapa resolve", () => {
       "e1",
       "t1",
       "https://app.clickup.com/t/t1",
+      "list_date",
     );
   });
 
@@ -493,6 +495,14 @@ describe("runJob — etapa resolve", () => {
     await runJob(makeJob(), deps);
 
     expect(deps.client.createTask.mock.calls[0][0]).toBe("bk");
+    // O registro fica marcado com a origem 'backlog' — é o que liga o aviso
+    // "sincronizado sem sprint" no card do ponto (Tarefa 16).
+    expect(deps.saveEntryTask).toHaveBeenCalledWith(
+      "e1",
+      "t1",
+      "https://app.clickup.com/t/t1",
+      "backlog",
+    );
   });
 
   it("falha terminal sem configuração — CA-14, RN-08", async () => {

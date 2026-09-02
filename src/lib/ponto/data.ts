@@ -6,6 +6,9 @@ import type { Project } from "./validation";
 /** Intervalo de datas (inclusivo), em "YYYY-MM-DD". */
 export type DateRange = { from: string; to: string };
 
+/** Estado da sincronização com o ClickUp (spec 011) — espelha `clickupSyncStatus` do schema. */
+export type ClickUpSyncStatus = "pending" | "synced" | "failed" | "off";
+
 export type PontoEntry = {
   id: string;
   title: string;
@@ -15,6 +18,15 @@ export type PontoEntry = {
   link: string | null;
   project: Project;
   createdAt: Date;
+  // Estado de sincronização com o ClickUp (spec 011) — alimenta o badge do
+  // card do ponto (Tarefa 16).
+  clickupTaskId: string | null;
+  clickupTaskUrl: string | null;
+  clickupSyncStatus: ClickUpSyncStatus;
+  // Como o destino foi decidido (`SprintPick["source"]` de `lib/clickup/sprint.ts`):
+  // 'backlog' sinaliza "sincronizado, sem sprint" (RF-07, CA-21). Nulo enquanto
+  // não sincronizado.
+  clickupSprintSource: string | null;
 };
 
 /**
@@ -44,6 +56,10 @@ export async function listOwnEntries(
       link: registrosPonto.link,
       project: registrosPonto.project,
       createdAt: registrosPonto.createdAt,
+      clickupTaskId: registrosPonto.clickupTaskId,
+      clickupTaskUrl: registrosPonto.clickupTaskUrl,
+      clickupSyncStatus: registrosPonto.clickupSyncStatus,
+      clickupSprintSource: registrosPonto.clickupSprintSource,
     })
     .from(registrosPonto)
     .where(where)
@@ -79,6 +95,10 @@ export async function listEntriesByUsers(
       link: registrosPonto.link,
       project: registrosPonto.project,
       createdAt: registrosPonto.createdAt,
+      clickupTaskId: registrosPonto.clickupTaskId,
+      clickupTaskUrl: registrosPonto.clickupTaskUrl,
+      clickupSyncStatus: registrosPonto.clickupSyncStatus,
+      clickupSprintSource: registrosPonto.clickupSprintSource,
       userId: registrosPonto.userId,
       userName: users.name,
       hourlyRateCents: users.hourlyRateCents,

@@ -63,6 +63,9 @@ clickupTaskId: varchar("clickup_task_id", { length: 64 }),
 clickupTaskUrl: varchar("clickup_task_url", { length: 512 }),
 clickupSyncStatus: clickupSyncStatusEnum("clickup_sync_status")
   .notNull().default("pending"),   // pending | synced | failed | off
+// Como `pickSprintList` decidiu o destino (Tarefa 16) — 'list_date' | 'list_name' |
+// 'backlog'. Alimenta o aviso "sincronizado sem sprint" no card (RF-07, CA-21).
+clickupSprintSource: varchar("clickup_sprint_source", { length: 16 }),
 ```
 
 `off` é o estado de quem foi criado com a integração desligada — distingue "não vai
@@ -338,6 +341,7 @@ Badge de estado ao lado do badge de tempo, com transição via `motion`:
 | --------- | ------------------------------------------------------ |
 | `pending` | Ícone de relógio, `text-muted-foreground`              |
 | `synced`  | Link externo para a tarefa (o badge inteiro é o alvo)  |
+| `synced`, origem `backlog` | Variante `warning` (`docs/design-system.md` v1.12) — "sincronizado, sem sprint": o ponto chegou lá, mas caiu no backlog em vez de uma sprint (**RF-07**, **CA-21**) |
 | `failed`  | Badge `destructive` + ação "reenviar" (**RF-14**)      |
 | `off`     | Nada é exibido                                          |
 

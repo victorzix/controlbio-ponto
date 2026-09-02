@@ -26,6 +26,7 @@ import { ClickUpError } from "@/lib/clickup/errors";
 import { deleteTaskLink, findTaskLink, upsertTaskLink } from "@/lib/clickup/links";
 import { runJob, type PipelineDeps, type PipelineEntry } from "@/lib/clickup/pipeline";
 import { advanceStage, claimJobs, completeJob, failJob } from "@/lib/clickup/queue";
+import type { SprintPick } from "@/lib/clickup/sprint";
 
 const POLL_MS = Number(process.env.CLICKUP_WORKER_POLL_MS ?? 5000);
 const MAX_ATTEMPTS = Number(process.env.CLICKUP_MAX_ATTEMPTS ?? 5);
@@ -63,17 +64,24 @@ async function loadEntry(entryId: string): Promise<PipelineEntry | null> {
 
 /**
  * `saveEntryTask` do `PipelineDeps`: grava no próprio ponto a tarefa resolvida
- * (design §4.6, RF-13). Sobrescrita das duas colunas — repetir num retry é
- * inofensivo, por isso não precisa de guarda alguma.
+ * (design §4.6, RF-13) e como o destino foi decidido (`sprintSource` — RF-07,
+ * CA-21), o que dá ao card do ponto o aviso de "sincronizado sem sprint"
+ * quando caiu no backlog. Sobrescrita das mesmas colunas — repetir num retry
+ * é inofensivo, por isso não precisa de guarda alguma.
  */
 async function saveEntryTask(
   entryId: string,
   taskId: string,
   taskUrl: string,
+  sprintSource: SprintPick["source"],
 ): Promise<void> {
   await db
     .update(registrosPonto)
-    .set({ clickupTaskId: taskId, clickupTaskUrl: taskUrl })
+    .set({
+      clickupTaskId: taskId,
+      clickupTaskUrl: taskUrl,
+      clickupSprintSource: sprintSource,
+    })
     .where(eq(registrosPonto.id, entryId));
 }
 

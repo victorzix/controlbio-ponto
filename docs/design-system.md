@@ -6,8 +6,8 @@
 
 | Campo         | Valor              |
 | ------------- | ------------------ |
-| Versão        | 1.11               |
-| Atualizado em | 2026-06-29         |
+| Versão        | 1.12               |
+| Atualizado em | 2026-09-02         |
 | Stack visual  | Tailwind CSS v4 · shadcn/ui (new-york) · lucide-react · motion |
 
 ---
@@ -59,6 +59,8 @@ referenciam sempre o **token semântico** (`bg-primary`, `text-muted-foreground`
 | `--accent-foreground`      | `oklch(0.27 0.02 165)`       | `#2C3B35` | Texto sobre accent |
 | `--destructive`            | `oklch(0.58 0.22 27)`        | `#D23F3F` | Erro/exclusão |
 | `--destructive-foreground` | `oklch(0.985 0 0)`           | `#FCFCFC` | Texto sobre destructive |
+| `--warning`                | `oklch(0.85 0.14 80)`        | `#F0C468` | Alerta leve (não é erro) — ex.: sincronizado sem sprint (v1.12) |
+| `--warning-foreground`     | `oklch(0.32 0.09 70)`        | `#5C4013` | Texto sobre warning |
 | `--border`                 | `oklch(0.91 0.01 160)`       | `#E2E7E5` | Bordas |
 | `--input`                  | `oklch(0.91 0.01 160)`       | `#E2E7E5` | Borda de inputs |
 | `--ring`                   | `oklch(0.60 0.128 163)`      | `#159A6B` | Anel de foco (verde da marca) |
@@ -92,6 +94,8 @@ referenciam sempre o **token semântico** (`bg-primary`, `text-muted-foreground`
 | `--accent-foreground`      | `oklch(0.97 0.01 160)`       | `#F2F6F4` |
 | `--destructive`            | `oklch(0.70 0.19 25)`        | `#E8654F` |
 | `--destructive-foreground` | `oklch(0.985 0 0)`           | `#FCFCFC` |
+| `--warning`                | `oklch(0.35 0.09 75)`        | `#5A4419` |
+| `--warning-foreground`     | `oklch(0.90 0.12 85)`        | `#F5D89A` |
 | `--border`                 | `oklch(1 0 0 / 10%)`         | —         |
 | `--input`                  | `oklch(1 0 0 / 15%)`         | —         |
 | `--ring`                   | `oklch(0.70 0.13 163)`       | `#2FBE86` |
@@ -178,7 +182,9 @@ referenciam sempre o **token semântico** (`bg-primary`, `text-muted-foreground`
   refazer a query a cada toque); inclui atalhos **Marcar todos** / **Limpar**. Padrão em **/** (Relatórios),
   ver `src/app/(app)/user-multiselect.tsx`.
 - **Badge:** status/rótulos curtos. Convenção: ativo = `secondary`/`default`; inativo/neutro = `outline`;
-  erro/alerta = `destructive`.
+  erro/alerta = `destructive`; alerta leve (algo deu certo, mas com ressalva) = `warning` (v1.12) — ex.:
+  badge de sincronização do ClickUp no card do ponto quando o ponto foi enviado mas caiu no backlog em
+  vez de uma sprint (`docs/specs/011-integracao-clickup/design.md` §6.4).
 - **Rich text:** padrão **Markdown**. Edição via textarea + mini-toolbar (negrito/itálico/link/lista) +
   preview; exibição via componente próprio `<Markdown>` (`components/ui/markdown.tsx`), que é **seguro por
   construção** (monta nós React, sem `dangerouslySetInnerHTML`; links só com esquema `http(s)`/`mailto`).

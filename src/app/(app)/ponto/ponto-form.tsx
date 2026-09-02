@@ -15,6 +15,7 @@ import {
   PROJECT_OPTIONS,
   type Project,
 } from "@/lib/ponto/validation";
+import type { ClickUpSyncStatus } from "@/lib/ponto/data";
 import { cn } from "@/lib/utils";
 import { notifyUnexpectedError } from "@/lib/forms/notify-error";
 import { MarkdownEditor } from "./markdown-editor";
@@ -39,6 +40,12 @@ export type PontoEntryFormData = {
   description: string;
   link: string | null;
   project: Project;
+  // Estado de sincronização com o ClickUp (spec 011) — alimenta o
+  // `ClickUpSyncBadge` no card (Tarefa 16).
+  clickupTaskId: string | null;
+  clickupTaskUrl: string | null;
+  clickupSyncStatus: ClickUpSyncStatus;
+  clickupSprintSource: string | null;
 };
 
 type PontoFormProps = {
