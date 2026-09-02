@@ -134,6 +134,7 @@ type FakeDeps = {
   deleteLink: Mock<PipelineDeps["deleteLink"]>;
   loadEntry: Mock<PipelineDeps["loadEntry"]>;
   saveProgress: Mock<PipelineDeps["saveProgress"]>;
+  saveEntryTask: Mock<PipelineDeps["saveEntryTask"]>;
   personalToken: Mock<PipelineDeps["personalToken"]>;
 };
 
@@ -158,6 +159,7 @@ function makeDeps(
     deleteLink: vi.fn<PipelineDeps["deleteLink"]>(async () => {}),
     loadEntry: vi.fn<PipelineDeps["loadEntry"]>(async () => entry),
     saveProgress: vi.fn<PipelineDeps["saveProgress"]>(async () => {}),
+    saveEntryTask: vi.fn<PipelineDeps["saveEntryTask"]>(async () => {}),
     personalToken: vi.fn<PipelineDeps["personalToken"]>(async () => token),
   };
 }
@@ -233,6 +235,41 @@ describe("runJob — etapa resolve", () => {
       stage: "comment",
       clickupTaskId: "t1",
     });
+  });
+
+  it("grava a tarefa no registro de ponto — design §4.6", async () => {
+    const deps = makeDeps();
+    deps.client.createTask.mockResolvedValue(
+      makeTask({ id: "t5", url: "https://app.clickup.com/t/t5" }),
+    );
+
+    await runJob(makeJob(), deps);
+
+    expect(deps.saveEntryTask).toHaveBeenCalledTimes(1);
+    expect(deps.saveEntryTask).toHaveBeenCalledWith(
+      "e1",
+      "t5",
+      "https://app.clickup.com/t/t5",
+    );
+  });
+
+  it("grava a tarefa do índice no registro de ponto também", async () => {
+    // Reaproveitar a tarefa não pode deixar o ponto sem link para ela (RF-13).
+    const deps = makeDeps({
+      link: {
+        clickupTaskId: "t1",
+        clickupTaskUrl: "https://app.clickup.com/t/t1",
+        sprintListId: SPRINT_DESTINO,
+      },
+    });
+
+    await runJob(makeJob(), deps);
+
+    expect(deps.saveEntryTask).toHaveBeenCalledWith(
+      "e1",
+      "t1",
+      "https://app.clickup.com/t/t1",
+    );
   });
 
   it("reusa a tarefa do índice local sem buscar no ClickUp — CA-02", async () => {
@@ -498,6 +535,16 @@ describe("runJob — idempotência (RN-13, CA-12)", () => {
     expect(deps.client.createComment.mock.calls[0][0]).toBe("t1");
   });
 
+  it("job retomado no stage 'comment' não regrava a tarefa no ponto", async () => {
+    const deps = makeDeps();
+
+    await runJob(makeJob({ stage: "comment", clickupTaskId: "t1" }), deps);
+
+    // A escrita é do `resolve`, que não roda de novo. (E, se rodasse, seria uma
+    // sobrescrita das mesmas duas colunas — inofensiva.)
+    expect(deps.saveEntryTask).not.toHaveBeenCalled();
+  });
+
   it("job retomado no stage 'time_entry' não recomenta", async () => {
     const deps = makeDeps({ token: "pk_x" });
 
@@ -571,11 +618,18 @@ describe("runJob — idempotência (RN-13, CA-12)", () => {
     deps.saveProgress.mockImplementation(async (_jobId, patch) => {
       ordem.push(`save:${patch.stage}`);
     });
+    deps.saveEntryTask.mockImplementation(async () => {
+      ordem.push("saveEntryTask");
+    });
 
     await runJob(makeJob({ moveToReview: true }), deps);
 
     expect(ordem).toEqual([
       "createTask",
+      // Antes do avanço de stage: se esta gravação falhar, o retry refaz o
+      // `resolve` e tenta de novo. Depois do avanço, o ponto ficaria para
+      // sempre sem o link da tarefa.
+      "saveEntryTask",
       "save:comment",
       "createComment",
       "save:time_entry",
@@ -676,6 +730,37 @@ describe("runJob — etapas finais", () => {
       stage: "finish",
       clickupTimeEntryId: "te1",
     });
+  });
+
+  it("job de correção nunca lança tempo, mesmo com token pessoal", async () => {
+    // Editar um ponto não pode inflar as horas de ninguém no ClickUp: o
+    // lançamento original permanece, e a correção vive no comentário (RN-06).
+    const deps = makeDeps({ token: "pk_x" });
+
+    await runJob(makeJob({ kind: "correction" }), deps);
+
+    expect(deps.client.createTimeEntry).not.toHaveBeenCalled();
+    expect(deps.personalToken).not.toHaveBeenCalled();
+    // E o job segue normalmente até o fim.
+    expect(deps.saveProgress).toHaveBeenCalledWith("j1", { stage: "finish" });
+    expect(deps.saveProgress).toHaveBeenCalledWith("j1", { stage: "done" });
+  });
+
+  it("job de correção retomado em 'time_entry' também pula o lançamento", async () => {
+    const deps = makeDeps({ token: "pk_x" });
+
+    await runJob(
+      makeJob({
+        kind: "correction",
+        stage: "time_entry",
+        clickupTaskId: "t1",
+        clickupCommentId: "c2",
+      }),
+      deps,
+    );
+
+    expect(deps.client.createTimeEntry).not.toHaveBeenCalled();
+    expect(deps.saveProgress).toHaveBeenCalledWith("j1", { stage: "finish" });
   });
 
   it("só move para conclusão quando pedido e configurado — CA-08, RF-09", async () => {

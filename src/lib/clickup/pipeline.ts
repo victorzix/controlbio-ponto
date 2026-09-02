@@ -65,6 +65,16 @@ export type PipelineDeps = {
   deleteLink: typeof deleteTaskLink;
   loadEntry: (entryId: string) => Promise<PipelineEntry | null>;
   saveProgress: (jobId: string, patch: StagePatch) => Promise<void>;
+  /**
+   * Grava a tarefa resolvida no próprio registro de ponto (design §4.6) — é o
+   * que dá ao card do ponto o link para a tarefa (RF-13). Sobrescrita das
+   * mesmas duas colunas, então repetir num retry é inofensivo.
+   */
+  saveEntryTask: (
+    entryId: string,
+    taskId: string,
+    taskUrl: string,
+  ) => Promise<void>;
   personalToken: (userId: string) => Promise<string | null>;
 };
 
@@ -106,8 +116,8 @@ export function buildCommentBody(
 }
 
 /**
- * Etapa `resolve`: devolve o id da tarefa que vai receber o ponto, criando,
- * adotando ou reaproveitando conforme o caso. Deixa o índice
+ * Etapa `resolve`: devolve a tarefa que vai receber o ponto, criando, adotando
+ * ou reaproveitando conforme o caso. Deixa o índice
  * `(projeto, título normalizado)` apontando para ela (RN-01).
  */
 async function resolveTask(
@@ -115,7 +125,7 @@ async function resolveTask(
   config: ProjectConfig,
   assignee: number,
   deps: PipelineDeps,
-): Promise<string> {
+): Promise<{ id: string; url: string }> {
   const tituloNormalizado = normalizeTitle(entry.title);
 
   const lists = await deps.client.getLists(config.folderId);
@@ -146,7 +156,7 @@ async function resolveTask(
     // inofensivo. O status NÃO é tocado aqui — sem reler a tarefa não sabemos
     // se ela está parada, e na dúvida não se mexe no board (RN-02).
     await deps.client.updateTask(link.clickupTaskId, { addAssignees: [assignee] });
-    return link.clickupTaskId;
+    return { id: link.clickupTaskId, url: link.clickupTaskUrl };
   }
 
   // 2. Busca no ClickUp — a tarefa pode ter nascido no planejamento da sprint.
@@ -186,7 +196,7 @@ async function resolveTask(
       clickupTaskUrl: existente.url,
       sprintListId: destino,
     });
-    return existente.id;
+    return { id: existente.id, url: existente.url };
   }
 
   // 3. Cria. Nunca escreve estimativa de tempo (RN-10) — `CreateTaskInput` nem
@@ -207,7 +217,7 @@ async function resolveTask(
     clickupTaskUrl: nova.url,
     sprintListId: destino,
   });
-  return nova.id;
+  return { id: nova.id, url: nova.url };
 }
 
 /**
@@ -237,7 +247,12 @@ async function runStages(
   let taskId = job.clickupTaskId;
 
   if (stage === "resolve") {
-    taskId = await resolveTask(entry, config, assignee, deps);
+    const tarefaResolvida = await resolveTask(entry, config, assignee, deps);
+    taskId = tarefaResolvida.id;
+    // Antes de avançar o stage, não depois: se esta gravação falhar, o retry
+    // refaz o `resolve` (que converge para a mesma tarefa) e tenta de novo.
+    // Depois do avanço, o ponto ficaria para sempre sem o link da tarefa.
+    await deps.saveEntryTask(entry.id, tarefaResolvida.id, tarefaResolvida.url);
     await deps.saveProgress(job.id, { stage: "comment", clickupTaskId: taskId });
     stage = "comment";
   }
@@ -259,7 +274,13 @@ async function runStages(
   }
 
   if (stage === "time_entry") {
-    const token = await deps.personalToken(entry.userId);
+    // Um ponto editado NÃO relança tempo. O lançamento original permanece como
+    // está — a API não nos deixa emendá-lo, e criar um segundo inflaria as
+    // horas da pessoa no ClickUp, o que é estritamente pior. A duração nova
+    // chega pelo comentário de correção (RN-06). Decisão consciente, não
+    // esquecimento: o relatório oficial de horas é o do controlbio (RN-11).
+    const token =
+      job.kind === "correction" ? null : await deps.personalToken(entry.userId);
     if (token) {
       const timeEntryId = await deps.client.createTimeEntry(
         {
@@ -275,7 +296,8 @@ async function runStages(
         clickupTimeEntryId: timeEntryId,
       });
     } else {
-      // RN-12: conta pessoal é opcional — sem token, pula sem erro nenhum.
+      // Correção, ou conta pessoal não conectada (RN-12): pula a etapa sem
+      // erro nenhum e sem travar o job.
       await deps.saveProgress(job.id, { stage: "finish" });
     }
     stage = "finish";
