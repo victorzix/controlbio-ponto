@@ -42,3 +42,27 @@ export const updateOwnAccountSchema = z.object({
 });
 
 export type UpdateOwnAccountInput = z.infer<typeof updateOwnAccountSchema>;
+
+/**
+ * Token pessoal do ClickUp (spec 011, Tarefa 15) — conexão opcional em "Minha
+ * conta" para que as horas do próprio ponto sejam lançadas no ClickUp em nome
+ * da pessoa (o token de serviço não pode lançar tempo por terceiros no plano
+ * atual do workspace). Valida só a FORMA aqui: tokens pessoais do ClickUp
+ * sempre começam com "pk_". A prova de que o token realmente autentica (a
+ * chamada a `GET /v2/user`) é feita pela Server Action, não por este schema.
+ *
+ * `trim()` primeiro porque é comum colar o token com espaço/quebra de linha à
+ * volta.
+ */
+export const connectClickUpSchema = z.object({
+  token: z
+    .string()
+    .trim()
+    .min(1, "Informe o token.")
+    .startsWith(
+      "pk_",
+      'Token inválido. Tokens pessoais do ClickUp começam com "pk_".',
+    ),
+});
+
+export type ConnectClickUpInput = z.infer<typeof connectClickUpSchema>;

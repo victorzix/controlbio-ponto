@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { can } from "@/lib/rbac";
+import { getClickUpLabel } from "@/lib/conta/data";
 import { AppSidebar } from "@/components/app-sidebar";
 import { TrackingController } from "./tracking-controller";
 
@@ -19,11 +20,15 @@ export default async function AppLayout({
   const canReadUsuarios = can(user.role, "usuarios:ler");
   const canVerPonto = can(user.role, "ponto:ver_proprio");
   const canConfigurarIntegracao = can(user.role, "integracao:configurar");
+  // Só o rótulo da conexão ClickUp pessoal (spec 011, Tarefa 15) — nunca o
+  // token. Busca à parte para não alargar o que `SessionUser` expõe.
+  const clickupLabel = await getClickUpLabel(user.id);
 
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
       <AppSidebar
         user={{ name: user.name, username: user.username, email: user.email }}
+        clickupLabel={clickupLabel}
         canVerPonto={canVerPonto}
         canReadUsuarios={canReadUsuarios}
         canConfigurarIntegracao={canConfigurarIntegracao}

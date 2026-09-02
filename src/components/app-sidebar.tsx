@@ -26,6 +26,8 @@ import { cn } from "@/lib/utils";
 
 type AppSidebarProps = {
   user: { name: string; username: string; email: string | null };
+  /** Rótulo "conectado como X" da conta ClickUp pessoal, ou `null` (spec 011). */
+  clickupLabel: string | null;
   canVerPonto: boolean;
   canReadUsuarios: boolean;
   canConfigurarIntegracao: boolean;
@@ -56,6 +58,7 @@ const WIDTH_RAIL = "md:w-16";
  */
 export function AppSidebar({
   user,
+  clickupLabel,
   canVerPonto,
   canReadUsuarios,
   canConfigurarIntegracao,
@@ -317,6 +320,7 @@ export function AppSidebar({
         open={contaOpen}
         onClose={() => setContaOpen(false)}
         user={user}
+        clickupLabel={clickupLabel}
       />
     </>
   );
