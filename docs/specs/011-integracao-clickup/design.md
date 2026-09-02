@@ -201,7 +201,9 @@ resolve ──► comment ──► time_entry ──► finish ──► done
      via `PUT /v3/workspaces/{team}/tasks/{id}/home_list/{list}`;
    - status **parado** → `PUT /v2/task/{id}` com o status de andamento (RN-02);
    - usuário **não é assignee** → `PUT /v2/task/{id}` com `assignees: { add: [id] }`.
-6. Grava `clickup_task_id` no job, no registro de ponto e no índice. → `comment`
+6. Grava `clickup_task_id` no job (progresso), **no registro de ponto** (via
+   `saveEntryTask` — é o que dá ao card do ponto o link para a tarefa, §6.4) e no
+   índice. → `comment`
 
 ### `comment` — registrar o trabalho (RF-05)
 
@@ -235,9 +237,15 @@ Para `kind = correction`, o texto em negrito vira `Correção · 25/06/2026 · 3
 
 ### `time_entry` — lançar tempo (RF-18)
 
-Só executa se o usuário tiver token pessoal. Decifra, e chama
-`POST /v2/team/{team}/time_entries` **com o token dele** (`tid`, `start`, `duration`).
-Sem token, pula sem erro (**RN-12**). Grava `clickup_time_entry_id`. → `finish`
+Só executa quando o job é `push_entry` **e** o usuário tem token pessoal. Decifra, e
+chama `POST /v2/team/{team}/time_entries` **com o token dele** (`tid`, `start`,
+`duration`). Sem token, pula sem erro (**RN-12**). Grava `clickup_time_entry_id`.
+→ `finish`
+
+**Job `correction` pula esta etapa.** As horas daquele ponto já foram lançadas no envio
+original; lançar de novo por causa de uma edição **inflaria o total da pessoa** no
+ClickUp. Limitação aceita: editar a duração de um ponto não corrige o lançamento de
+tempo já feito — quem carrega os valores novos é o comentário de correção.
 
 `start` é o início do dia trabalhado às 09:00 no fuso de Brasília — o ponto registra
 duração, não horário. `duration` é `workedMinutes * 60_000`.
