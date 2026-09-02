@@ -321,7 +321,11 @@ Todas mobile first (≥ 360 px), alvos ≥ 44 px, tokens semânticos do
 ### 6.1 `/integracao` (admin)
 
 - **Cabeçalho de conexão:** "Conectado como \<nome\>" ou alerta de token ausente/inválido,
-  mais o contador de pendências (jobs `failed`).
+  mais o contador de pendências (jobs `failed`) e, abaixo dele, **a lista dessas falhas
+  com o motivo** (`clickup_sync_jobs.last_error`), o dono, o dia e a etapa em que o job
+  parou. É o que atende spec §8 ("o admin precisa conseguir responder 'por que este
+  ponto não chegou lá?' sem acesso a log de servidor"): o contador sozinho não responde.
+  Carregada sob demanda (React Query, só quando o contador é > 0).
 - **Um card por projeto** (Labphase, DW), empilhados no mobile:
   selects encadeados **Space → Folder → Lista de backlog → Status de andamento → Status
   de conclusão**, mais o formato de data da sprint e o interruptor de ativação.
@@ -352,15 +356,26 @@ Badge de estado ao lado do badge de tempo, com transição via `motion`:
 | `pending` | Ícone de relógio, `text-muted-foreground`              |
 | `synced`  | Link externo para a tarefa (o badge inteiro é o alvo)  |
 | `synced`, origem `backlog` | Variante `warning` (`docs/design-system.md` v1.12) — "sincronizado, sem sprint": o ponto chegou lá, mas caiu no backlog em vez de uma sprint (**RF-07**, **CA-21**) |
-| `failed`  | Badge `destructive` + ação "reenviar" (**RF-14**)      |
+| `failed`  | Badge `destructive` com o **motivo** da falha em `title`/`aria-label` (**CA-11**) + ação "reenviar" (**RF-14**), que dá `router.refresh()` no sucesso para o card sair de "falhou" na hora |
 | `off`     | Nada é exibido                                          |
 
 No mobile o rótulo colapsa e sobra só o ícone, preservando o alvo de 44 px.
 
+### 6.4.1 Aviso de privacidade (LGPD)
+
+Uma linha `text-muted-foreground text-xs` **abaixo do campo de descrição**, no formulário
+de ponto e no modal de finalização: "A descrição é enviada ao ClickUp e fica visível para
+outras pessoas do workspace." Spec §8 exige o aviso "para quem lança, na própria tela" —
+o texto equivalente em **Minha conta → ClickUp** (§6.2) não cumpre isso, porque aquele
+painel é opcional e muita gente nunca o abre, enquanto a descrição vai para o ClickUp
+do mesmo jeito.
+
 ### 6.5 Modal de finalização do cronômetro
 
 Interruptor **"mover a tarefa para revisão"**, marcado por padrão, visível apenas quando
-o projeto tem `doneStatus` configurado. Marcado → o **último** job gerado recebe
+a integração está ligada (`isSyncEnabled()`) **e** o projeto tem `doneStatus`
+configurado — com a chave geral desligada nada é enfileirado, então oferecer a opção
+prometeria algo que não acontece. Marcado → o **último** job gerado recebe
 `move_to_review = true` (**RF-09**, **RN-04** — pausar não gera nada disso).
 
 ## 7. Pontos de gatilho
@@ -368,7 +383,7 @@ o projeto tem `doneStatus` configurado. Marcado → o **último** job gerado rec
 | Origem                            | Efeito                                                                   |
 | --------------------------------- | ------------------------------------------------------------------------- |
 | `createEntry` (`ponto/actions.ts`) | 1 job `push_entry` por registro criado, na mesma transação                |
-| `updateEntry`                      | `clickup_task_id` nulo → `push_entry`; senão → `correction` (**RN-06**)   |
+| `updateEntry`                      | `clickup_sync_status = 'synced'` → `correction` (**RN-06**); `pending`/`failed` → `push_entry` (e o registro volta a `pending`); `off` → nada. O critério é o **status**, nunca `clickup_task_id`: esse id é marcador de progresso, gravado no fim do `resolve`, antes de existir comentário — usá-lo faria um job que morreu no `comment` virar "correção", pulando o lançamento de tempo (**RF-18**, **CA-16**) |
 | `duplicateEntry`                   | 1 job `push_entry`                                                        |
 | `deleteEntry`                      | Nada — o `ON DELETE CASCADE` remove o job pendente (**RN-07**)            |
 | `finalizeTracking`                 | N jobs `push_entry`; `move_to_review` no último quando pedido             |

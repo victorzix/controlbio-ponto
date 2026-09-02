@@ -44,6 +44,7 @@ export function PontoEntryCard({
         status={entry.clickupSyncStatus}
         taskUrl={entry.clickupTaskUrl}
         sprintSource={entry.clickupSprintSource}
+        lastError={entry.clickupLastError}
       />
       <PontoEntryActions
         entry={entry}

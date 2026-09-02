@@ -1,6 +1,11 @@
-import { eq, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import type { db } from "@/db";
-import { clickupJobStage, clickupSyncJobs, registrosPonto } from "@/db/schema";
+import {
+  clickupJobStage,
+  clickupSyncJobs,
+  registrosPonto,
+  users,
+} from "@/db/schema";
 import type { ClickUpSyncJob } from "@/db/schema";
 import { ClickUpError, computeBackoffMs } from "./errors";
 
@@ -320,4 +325,46 @@ export async function countFailedJobs(): Promise<number> {
     .where(eq(clickupSyncJobs.status, "failed"));
 
   return rows[0]?.count ?? 0;
+}
+
+/** Uma falha pendente, como o painel do admin precisa vê-la. */
+export type FailedJobSummary = {
+  jobId: string;
+  entryId: string;
+  entryTitle: string;
+  workDate: string;
+  userName: string;
+  stage: JobStage;
+  /** `ClickUpError.message` da última tentativa — sem segredo por construção. */
+  lastError: string | null;
+  failedAt: Date;
+};
+
+/**
+ * As falhas pendentes com o **motivo** — spec §8: "o admin precisa conseguir
+ * responder 'por que este ponto não chegou lá?' sem acesso a log de servidor".
+ * `last_error` já era gravado a cada falha (`failJob`) e não era lido por
+ * ninguém; um número solto na tela não responde a pergunta.
+ *
+ * Junta ponto e dono porque a falha só é acionável com "de quem" e "de que dia".
+ */
+export async function listFailedJobs(limit = 20): Promise<FailedJobSummary[]> {
+  const db = await getDb();
+  return db
+    .select({
+      jobId: clickupSyncJobs.id,
+      entryId: clickupSyncJobs.entryId,
+      entryTitle: registrosPonto.title,
+      workDate: registrosPonto.workDate,
+      userName: users.name,
+      stage: clickupSyncJobs.stage,
+      lastError: clickupSyncJobs.lastError,
+      failedAt: clickupSyncJobs.updatedAt,
+    })
+    .from(clickupSyncJobs)
+    .innerJoin(registrosPonto, eq(clickupSyncJobs.entryId, registrosPonto.id))
+    .innerJoin(users, eq(registrosPonto.userId, users.id))
+    .where(eq(clickupSyncJobs.status, "failed"))
+    .orderBy(desc(clickupSyncJobs.updatedAt))
+    .limit(limit);
 }

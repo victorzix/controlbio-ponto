@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, PlugZap, AlertTriangle } from "lucide-react";
-import { fetchConnectionStatus } from "@/lib/clickup/actions";
+import { fetchConnectionStatus, fetchFailedSyncJobs } from "@/lib/clickup/actions";
 import type { ProjectConfig } from "@/lib/clickup/config";
 import { PROJECT_OPTIONS, type Project } from "@/lib/ponto/validation";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,21 @@ import { ProjectConfigForm } from "./project-config-form";
 
 type Props = {
   initialConfigs: Partial<Record<Project, ProjectConfig>>;
+};
+
+/** "2026-06-25" → "25/06/2026", sem `new Date` (que sofreria com o fuso). */
+function formatDateBR(iso: string): string {
+  const [ano, mes, dia] = iso.split("-");
+  return `${dia}/${mes}/${ano}`;
+}
+
+/** Etapa do pipeline em português — o admin não lê o enum do banco. */
+const ETAPA_LABEL: Record<string, string> = {
+  resolve: "resolver a tarefa",
+  comment: "comentar",
+  time_entry: "lançar o tempo",
+  finish: "concluir",
+  done: "finalizar",
 };
 
 /**
@@ -22,6 +37,13 @@ export function IntegracaoClient({ initialConfigs }: Props) {
   const { data: status, isPending } = useQuery({
     queryKey: ["clickup", "connection-status"],
     queryFn: fetchConnectionStatus,
+  });
+
+  // Só busca o detalhe quando há o que detalhar — o contador já veio acima.
+  const { data: falhas } = useQuery({
+    queryKey: ["clickup", "failed-jobs"],
+    queryFn: fetchFailedSyncJobs,
+    enabled: !!status && status.failedJobs > 0,
   });
 
   return (
@@ -43,7 +65,7 @@ export function IntegracaoClient({ initialConfigs }: Props) {
             Conexão
           </CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <CardContent className="flex flex-col gap-3">
           {isPending ? (
             <p className="text-muted-foreground flex items-center gap-2 text-sm">
               <Loader2 className="size-4 animate-spin" />
@@ -71,14 +93,44 @@ export function IntegracaoClient({ initialConfigs }: Props) {
           )}
 
           {status && status.failedJobs > 0 ? (
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="text-destructive size-4 shrink-0" />
-              <p className="text-sm">
-                <span className="font-medium">{status.failedJobs}</span>{" "}
-                {status.failedJobs === 1
-                  ? "envio pendente com falha"
-                  : "envios pendentes com falha"}
-              </p>
+            <div className="border-border flex flex-col gap-2 border-t pt-3">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="text-destructive size-4 shrink-0" />
+                <p className="text-sm">
+                  <span className="font-medium">{status.failedJobs}</span>{" "}
+                  {status.failedJobs === 1
+                    ? "envio pendente com falha"
+                    : "envios pendentes com falha"}
+                </p>
+              </div>
+
+              {/*
+                O motivo, e não só a contagem: spec §8 pede que o admin consiga
+                responder "por que este ponto não chegou lá?" sem abrir log de
+                servidor. `lastError` vem de `ClickUpError.message` — sem token
+                e sem a descrição do ponto.
+              */}
+              {falhas && falhas.length > 0 ? (
+                <ul className="flex flex-col gap-2">
+                  {falhas.map((f) => (
+                    <li
+                      key={f.jobId}
+                      className="bg-muted/40 flex flex-col gap-0.5 rounded-md px-3 py-2"
+                    >
+                      <p className="text-sm font-medium break-words">
+                        {f.entryTitle}
+                      </p>
+                      <p className="text-muted-foreground text-xs">
+                        {f.userName} · {formatDateBR(f.workDate)} · parou ao{" "}
+                        {ETAPA_LABEL[f.stage] ?? f.stage}
+                      </p>
+                      <p className="text-destructive text-xs break-words">
+                        {f.lastError ?? "Motivo não registrado."}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
           ) : null}
         </CardContent>

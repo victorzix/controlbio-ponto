@@ -5,6 +5,7 @@ import { todayBrasiliaISO } from "@/lib/tz";
 import type { Project } from "@/lib/ponto/validation";
 import { getProjectConfig } from "@/lib/clickup/config";
 import { hasDoneStatus } from "@/lib/clickup/done-status";
+import { isSyncEnabled } from "@/lib/clickup/enabled";
 import { computeElapsedAndStatus, type TrackingStatus } from "./compute";
 
 export type { TrackingStatus };
@@ -88,7 +89,10 @@ export async function getActiveTracking(
     elapsedMs,
     serverNow: now.toISOString(),
     todayBrasilia: todayBrasiliaISO(),
-    canMoveToReview: hasDoneStatus(projectConfig),
+    // A chave geral vem antes da configuração do projeto: com
+    // `CLICKUP_SYNC_ENABLED=false` nada é enfileirado, então oferecer "mover a
+    // tarefa para revisão" prometeria algo que não acontece.
+    canMoveToReview: isSyncEnabled() && hasDoneStatus(projectConfig),
   };
 }
 

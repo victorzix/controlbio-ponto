@@ -90,6 +90,12 @@ docker compose up -d db   # sobe só o Postgres
 npm run db:generate   # gera migration a partir do schema
 npm run db:migrate    # aplica migrations
 npm run db:studio     # Drizzle Studio (inspeção do banco)
-npm run worker:clickup # worker da integração com o ClickUp (spec 011) — consome a fila de sincronização
 npm run lint
+
+# Worker da integração com o ClickUp (spec 011) — consome a fila de sincronização.
+# Processo SEPARADO da app: precisa rodar junto com `npm run dev` para o ponto
+# chegar ao ClickUp. Sem CLICKUP_API_TOKEN/CLICKUP_TEAM_ID ele loga uma linha e
+# encerra — é o estado normal de um ambiente sem a integração configurada.
+npm run worker:clickup
+# ↳ node --env-file-if-exists=.env --import tsx src/worker/clickup-sync.ts
 ```

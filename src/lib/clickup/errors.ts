@@ -38,10 +38,16 @@ export class ClickUpError extends Error {
   }
 }
 
+/**
+ * @param path Caminho da requisição que falhou (ex.: `/v2/folder/123/list`).
+ *   Só entra na mensagem do 404, onde é a diferença entre "alguma coisa não
+ *   existe" e saber **o quê** — ver o comentário abaixo.
+ */
 export function classifyHttp(
   status: number,
   body: string,
   resetAt: Date | null,
+  path?: string,
 ): ClickUpError {
   if (status === 429) {
     return new ClickUpError({
@@ -70,9 +76,17 @@ export function classifyHttp(
   }
   if (status === 404) {
     // Tarefa apagada no ClickUp: o índice local está velho. Limpar e recriar.
+    //
+    // O CAMINHO entra na mensagem porque nem todo 404 é tarefa sumida: um
+    // `folderId` digitado errado na configuração (bem provável no primeiro dia)
+    // dá 404 em `/v2/folder/{id}/list` e, sem o caminho, chega ao admin como
+    // "recurso não encontrado" — depois de cinco tentativas ao longo de ~7h,
+    // apontando para o lugar errado.
     return new ClickUpError({
       code: "TAREFA_SUMIU",
-      message: "Recurso não encontrado no ClickUp.",
+      message: path
+        ? `Recurso não encontrado no ClickUp (${path}).`
+        : "Recurso não encontrado no ClickUp.",
       status,
       retryable: true,
     });

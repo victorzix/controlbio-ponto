@@ -27,6 +27,14 @@ describe("classifyHttp", () => {
     expect(err.retryable).toBe(true);
   });
 
+  it("404 diz QUAL recurso não foi achado", () => {
+    // Nem todo 404 é tarefa sumida: um folderId errado na configuração dá 404
+    // em /v2/folder/{id}/list e, sem o caminho, o admin recebe "recurso não
+    // encontrado" apontando para o lugar errado.
+    const err = classifyHttp(404, "", null, "/v2/folder/999/list");
+    expect(err.message).toContain("/v2/folder/999/list");
+  });
+
   it("400 é terminal e preserva o corpo para diagnóstico", () => {
     const err = classifyHttp(400, '{"err":"Status not found"}', null);
     expect(err.code).toBe("REQUISICAO_INVALIDA");

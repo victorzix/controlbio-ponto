@@ -180,7 +180,6 @@ export async function updateEntry(
       .where(and(eq(registrosPonto.id, id), eq(registrosPonto.userId, user.id)))
       .returning({
         id: registrosPonto.id,
-        clickupTaskId: registrosPonto.clickupTaskId,
         clickupSyncStatus: registrosPonto.clickupSyncStatus,
       });
 
@@ -194,14 +193,35 @@ export async function updateEntry(
     // é absoluta: com a integração desligada, editar não pode reativar a
     // sincronização de um registro nem enfileirar nada — mesma regra de
     // `createEntry`/`duplicateEntry`/`finalizeTracking`.
+    //
+    // O que decide entre correção e envio inicial é `clickupSyncStatus`, NÃO
+    // `clickupTaskId`: o id da tarefa é marcador de PROGRESSO, gravado ao fim
+    // do `resolve`, antes de existir comentário nenhum. Um job que resolveu e
+    // falhou de forma terminal no `comment` deixa o id gravado; tratar isso
+    // como "já sincronizado" enfileiraria uma `correction`, que pula o
+    // lançamento de tempo por definição — a tarefa receberia como PRIMEIRO
+    // comentário um rotulado "Correção", o tempo nunca seria lançado (RF-18,
+    // CA-16) e o registro ainda terminaria `synced`, com o badge verde
+    // escondendo tudo.
     if (syncOn) {
-      if (found.clickupTaskId) {
+      if (found.clickupSyncStatus === "synced") {
         await enqueuePushEntry(tx, { entryId: found.id, kind: "correction" });
       } else if (
         found.clickupSyncStatus === "pending" ||
         found.clickupSyncStatus === "failed"
       ) {
         await enqueuePushEntry(tx, { entryId: found.id, kind: "push_entry" });
+
+        // O envio voltou para a fila: o registro é `pending` de novo — mesma
+        // verdade imediata que `retryJob` grava (RF-14). Sem isto o card
+        // continua oferecendo "reenviar", que reagendaria o job ANTIGO em
+        // paralelo com este — dois jobs vivos no mesmo ponto, dois comentários.
+        if (found.clickupSyncStatus === "failed") {
+          await tx
+            .update(registrosPonto)
+            .set({ clickupSyncStatus: "pending" })
+            .where(eq(registrosPonto.id, found.id));
+        }
       }
     }
 

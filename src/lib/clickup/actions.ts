@@ -17,7 +17,12 @@ import { todayBrasiliaISO } from "@/lib/tz";
 import { getServiceClient, getProjectConfigForEdit } from "./data";
 import { upsertProjectConfig, type ProjectConfig } from "./config";
 import { listMembers, type ClickUpMember } from "./members";
-import { countFailedJobs, retryJob } from "./queue";
+import {
+  countFailedJobs,
+  listFailedJobs,
+  retryJob,
+  type FailedJobSummary,
+} from "./queue";
 import { pickSprintList, type ClickUpList, type SprintPick } from "./sprint";
 import { findMissingConfiguredStatuses, type ClickUpStatus } from "./status";
 import { projectConfigSchema } from "./validation";
@@ -65,6 +70,17 @@ export async function fetchConnectionStatus(): Promise<ConnectionStatus> {
       failedJobs,
     };
   }
+}
+
+/**
+ * As falhas pendentes **com o motivo** (spec §8, "Observabilidade"): é o que
+ * transforma o contador da tela numa resposta para "por que este ponto não
+ * chegou lá?" sem abrir log de servidor. Só admin — mesma guarda do resto da
+ * tela: a lista expõe título e dono de ponto de outras pessoas.
+ */
+export async function fetchFailedSyncJobs(): Promise<FailedJobSummary[]> {
+  await requirePermission("integracao:configurar");
+  return listFailedJobs();
 }
 
 /** Lança se não houver token de serviço configurado no ambiente. */

@@ -169,7 +169,9 @@ export function createClickUpClient(opts: {
 
     if (!res.ok) {
       const bodyText = await res.text().catch(() => "");
-      throw classifyHttp(res.status, bodyText, resetAt);
+      // Sem a query string: `list_ids[]` e afins só engordariam a mensagem que
+      // vai parar no `last_error` e na tela do admin.
+      throw classifyHttp(res.status, bodyText, resetAt, path.split("?")[0]);
     }
 
     const text = await res.text();

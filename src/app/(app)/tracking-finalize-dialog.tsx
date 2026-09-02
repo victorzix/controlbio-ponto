@@ -353,6 +353,16 @@ function FinalizeForm({
         })}
       </div>
 
+      {/*
+        Privacidade/LGPD (spec 011, §8): o aviso tem que estar "para quem lança,
+        na própria tela". Uma vez só, abaixo dos blocos — vale para a descrição
+        de todos eles.
+      */}
+      <p className="text-muted-foreground text-xs">
+        A descrição é enviada ao ClickUp e fica visível para outras pessoas do
+        workspace.
+      </p>
+
       {tracking.canMoveToReview ? (
         <div className="border-border flex flex-col gap-1 border-t pt-3">
           <label className="flex min-h-[44px] cursor-pointer items-center gap-3">

@@ -46,6 +46,8 @@ export type PontoEntryFormData = {
   clickupTaskUrl: string | null;
   clickupSyncStatus: ClickUpSyncStatus;
   clickupSprintSource: string | null;
+  /** Motivo da última falha de sincronização (CA-11). */
+  clickupLastError: string | null;
 };
 
 type PontoFormProps = {
@@ -264,6 +266,16 @@ export function PontoForm({
             {errors.description.message}
           </p>
         ) : null}
+        {/*
+          Privacidade/LGPD (spec 011, §8): o aviso tem que estar "para quem
+          lança, na própria tela". Ficar só no painel de conexão da conta
+          pessoal não serve — a descrição vai para o ClickUp mesmo de quem
+          nunca abriu aquele painel.
+        */}
+        <p className="text-muted-foreground text-xs">
+          A descrição é enviada ao ClickUp e fica visível para outras pessoas do
+          workspace.
+        </p>
       </div>
 
       {/* Projeto */}

@@ -1,7 +1,26 @@
-import { and, asc, desc, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { registrosPonto, users } from "@/db/schema";
 import type { Project } from "./validation";
+
+/**
+ * Motivo da última falha de sincronização do registro (spec 011, §8
+ * "Observabilidade" e CA-11). `clickup_sync_jobs.last_error` é gravado a cada
+ * falha e, sem isto, morria no banco: o card só dizia "falhou".
+ *
+ * Subconsulta em vez de join para não multiplicar linhas (um ponto pode ter
+ * mais de um job — envio original e correções) e para o campo custar zero em
+ * registro sem falha. A mensagem vem de `ClickUpError.message`, que é
+ * deliberadamente livre de segredo (nunca token, nunca descrição do ponto).
+ */
+const clickupLastError = sql<string | null>`(
+  select j.last_error
+    from clickup_sync_jobs j
+   where j.entry_id = ${registrosPonto.id}
+     and j.status = 'failed'
+   order by j.updated_at desc
+   limit 1
+)`.as("clickup_last_error");
 
 /** Intervalo de datas (inclusivo), em "YYYY-MM-DD". */
 export type DateRange = { from: string; to: string };
@@ -27,6 +46,8 @@ export type PontoEntry = {
   // 'backlog' sinaliza "sincronizado, sem sprint" (RF-07, CA-21). Nulo enquanto
   // não sincronizado.
   clickupSprintSource: string | null;
+  /** Motivo da última falha (CA-11). Nulo quando não há job `failed`. */
+  clickupLastError: string | null;
 };
 
 /**
@@ -60,6 +81,7 @@ export async function listOwnEntries(
       clickupTaskUrl: registrosPonto.clickupTaskUrl,
       clickupSyncStatus: registrosPonto.clickupSyncStatus,
       clickupSprintSource: registrosPonto.clickupSprintSource,
+      clickupLastError,
     })
     .from(registrosPonto)
     .where(where)
@@ -99,6 +121,7 @@ export async function listEntriesByUsers(
       clickupTaskUrl: registrosPonto.clickupTaskUrl,
       clickupSyncStatus: registrosPonto.clickupSyncStatus,
       clickupSprintSource: registrosPonto.clickupSprintSource,
+      clickupLastError,
       userId: registrosPonto.userId,
       userName: users.name,
       hourlyRateCents: users.hourlyRateCents,
