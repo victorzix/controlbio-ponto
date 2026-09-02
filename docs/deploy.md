@@ -56,6 +56,53 @@ docker compose exec db pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > backup_$(dat
 # Os dados ficam no volume `postgres_data` (sobrevive a `down`; some com `down -v`).
 ```
 
+## Worker do ClickUp (spec 011)
+
+O serviço `worker` consome a fila `clickup_sync_jobs` e fala com a API do ClickUp
+(criar/atualizar tarefa, comentar, lançar tempo) para refletir o ponto batido no board
+da sprint. A app **nunca** fala direto com o ClickUp — ela só grava o job na mesma
+transação em que salva o ponto; quem processa é este serviço, sozinho e à parte.
+
+- Roda a partir do estágio `tools` do `Dockerfile` — o mesmo do `migrate` (tem `tsx` e
+  o código-fonte completo; o `runner` só tem o build standalone da app, sem isso).
+- Comando: `npm run worker:clickup` (definido no `docker-compose.yml`).
+- Acompanhar: `docker compose logs -f worker`.
+- **Sem `CLICKUP_API_TOKEN`/`CLICKUP_TEAM_ID`**, o worker loga uma linha
+  (`sem CLICKUP_API_TOKEN/CLICKUP_TEAM_ID — nada a fazer.`) e encerra **com sucesso**
+  — não é uma falha. Como o serviço é `restart: unless-stopped`, o compose volta a
+  subi-lo, então num ambiente sem token ele fica reiniciando e repetindo essa linha
+  periodicamente; é inofensivo, mas se incomodar nos logs, pare-o com
+  `docker compose stop worker`.
+- Encerra de forma graciosa em `SIGTERM`/`SIGINT`: termina o lote de jobs em andamento
+  antes de sair, nunca no meio de uma etapa — é o que evita duplicar comentário ou
+  lançamento de tempo num retry após um `docker compose down`/`restart worker`.
+
+### Variáveis de ambiente
+
+| Variável                     | Papel                                                | Padrão |
+| ----------------------------- | ----------------------------------------------------- | ------ |
+| `CLICKUP_API_TOKEN`           | Token de serviço do workspace (`pk_...`)               | —      |
+| `CLICKUP_TEAM_ID`              | Workspace (team) de destino                            | —      |
+| `CLICKUP_TOKEN_ENC_KEY`        | Chave AES-256 (base64, 32 bytes) dos tokens pessoais   | —      |
+| `CLICKUP_RATE_LIMIT_PER_MIN`   | Teto de requisições por minuto ao ClickUp              | `90`   |
+| `CLICKUP_WORKER_POLL_MS`       | Intervalo de sondagem da fila                          | `5000` |
+| `CLICKUP_MAX_ATTEMPTS`         | Tentativas automáticas antes de exigir reenvio manual  | `5`    |
+
+Gere `CLICKUP_TOKEN_ENC_KEY` uma vez, antes da primeira subida:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+### ⚠️ `CLICKUP_TOKEN_ENC_KEY` é segredo — trate como credencial de banco
+
+Essa chave cifra o token pessoal de cada pessoa que conecta a própria conta do ClickUp
+em **Minha conta → ClickUp**. **Perder essa chave (ou trocá-la sem migrar os dados)
+invalida todos os tokens pessoais já armazenados** — os valores cifrados no banco ficam
+indecifráveis para sempre, e **cada pessoa precisa reconectar** a própria conta. Guarde-a
+com o mesmo cuidado que `POSTGRES_PASSWORD`: fora do controle de versão, com backup, e
+nunca a rotacione sem um plano para o reonboarding de quem já conectou.
+
 ## Notas
 
 - A app fala com o banco pelo host interno `db` (rede do compose). O `DATABASE_URL`

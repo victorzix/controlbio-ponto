@@ -90,5 +90,6 @@ docker compose up -d db   # sobe só o Postgres
 npm run db:generate   # gera migration a partir do schema
 npm run db:migrate    # aplica migrations
 npm run db:studio     # Drizzle Studio (inspeção do banco)
+npm run worker:clickup # worker da integração com o ClickUp (spec 011) — consome a fila de sincronização
 npm run lint
 ```

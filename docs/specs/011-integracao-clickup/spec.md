@@ -2,7 +2,7 @@
 
 | Campo         | Valor                      |
 | ------------- | -------------------------- |
-| Status        | Em revisão                 |
+| Status        | Implementada                |
 | Autor(es)     | Victor · Equipe controlbio |
 | Criada em     | 2026-09-02                 |
 | Atualizada em | 2026-09-02                 |
@@ -253,28 +253,73 @@ justamente porque hoje a amarração com a tarefa do ClickUp é manual.
 
 ## 10. Questões em Aberto
 
-- [ ] **Q-01:** As Listas de sprint no ClickUp têm data de início/fim preenchidas? Se não
-      tiverem, a escolha da sprint passa a depender do **nome** da Lista — e os nomes hoje
-      usam formatos diferentes por frente (`1/9/26 - 15/9/26` em uma, `7/8 - 7/28` em
-      outra, e algumas **sem data alguma**, como `Sprint 3 - Abril`). Precisa ser
-      verificado com credencial real antes do `design.md`. **Alternativa recomendada:**
-      passar a preencher a data das Listas no ClickUp (uma vez por sprint) e tratar o
-      parse de nome apenas como rede de segurança.
-- [ ] **Q-02:** Qual área do ClickUp corresponde a **`labphase`** e a **`dw`**? Nenhuma
-      das duas existe hoje como folder no workspace inspecionado (que tem `GPA`, `AFA`,
-      `RPA`, `Produtividade & IA`, `NPS`, `Tech Garage`). Precisam ser criadas ou mapeadas
-      para folders existentes.
-- [ ] **Q-03:** O status **"waiting code review"** não existe nos folders inspecionados
-      (`GPA` tem _em teste_ / _em homologação_; `RPA` tem _homologando_ / _documentando_).
-      Ele será criado nos folders de destino, ou o status de conclusão será outro?
-- [ ] **Q-04:** O interruptor "mover a tarefa para revisão" no encerramento do cronômetro
-      deve vir **marcado por padrão**? A proposta é sim, para honrar "ao encerrar", mas com
-      possibilidade de desmarcar — evita marcar como pronta uma tarefa que só foi
-      interrompida no fim do dia.
-- [ ] **Q-05:** Quantas tentativas automáticas antes de desistir e exigir reenvio manual?
-      Proposta: **5**, com intervalos crescentes até algumas horas.
-- [ ] **Q-06:** O admin deve ser **notificado** ativamente de falhas (e-mail/alerta) ou
-      basta o indicador na tela de integração? Proposta: apenas a tela nesta versão.
+Nenhuma delas bloqueia mais nada — Q-02 a Q-06 viraram decisão de implementação; Q-01
+segue genuinamente aberta (é um fato do workspace real, não uma decisão de código).
+
+- [ ] **Q-01:** As Listas de sprint no ClickUp têm data de início/fim preenchidas?
+      **Segue em aberto** — nenhum token real existiu no ambiente de build (ver
+      `acceptance.md`, nota de abertura). A implementação **prefere** `start_date`/
+      `due_date` da própria Lista (`pickSprintList`, `design.md` §3.1) e só cai para o
+      parse do **nome** da Lista (formato configurável por projeto, `dmy`/`mdy`) quando a
+      Lista não tem data; se nada casar, vai para o backlog e sinaliza. **Recomendação
+      mantida:** preencher a data das Listas de sprint no ClickUp (uma vez por sprint) —
+      isso mantém o parse de nome como rede de segurança em vez de caminho principal, que
+      é o desenho mais frágil dos dois. O roteiro de aceitação (CT-14) é o lugar para
+      confirmar isto contra o workspace real.
+- [x] **Q-02:** Qual área do ClickUp corresponde a **`labphase`** e a **`dw`**?
+      **Deixou de bloquear.** Essa decisão não é mais código: o admin mapeia cada projeto
+      para o Space/Folder que quiser em tempo de execução, na tela `/integracao`
+      (RF-10). Não há mais um folder "certo" fixado — o mapeamento é o que for
+      configurado lá, e pode mudar sem deploy.
+- [x] **Q-03:** O status **"waiting code review"** não existe nos folders inspecionados.
+      **Deixou de bloquear**, pelo mesmo motivo do Q-02: o status de conclusão é uma
+      escolha do admin entre os status que já existem na Lista de destino (select
+      "Status 'concluído' (opcional)" em `/integracao`), não um nome fixo no código. Um
+      projeto pode inclusive ficar **sem** status de conclusão configurado — nesse caso o
+      interruptor "mover a tarefa para revisão" simplesmente não aparece no encerramento
+      do cronômetro (RF-09 não se aplica a esse projeto).
+- [x] **Q-04:** O interruptor "mover a tarefa para revisão" deve vir marcado por padrão?
+      **Sim, implementado assim.** Vem marcado quando o projeto tem status de conclusão
+      configurado, com a legenda "Desmarque se você só está parando por hoje." ao lado —
+      para não confundir uma pausa no fim do dia com a atividade estar pronta.
+- [x] **Q-05:** Quantas tentativas automáticas antes de exigir reenvio manual?
+      **Cinco**, com backoff crescente: 1min → 5min → 15min → 1h → 6h. Configurável por
+      `CLICKUP_MAX_ATTEMPTS` (padrão 5).
+- [x] **Q-06:** O admin deve ser notificado ativamente de falhas, ou basta o indicador na
+      tela? **Apenas a tela, nesta versão** — o contador de "envios pendentes com falha"
+      no cabeçalho de `/integracao`, mais o badge de falha no próprio card do ponto. Sem
+      e-mail/alerta ativo. Fica registrado como candidato a uma versão futura se o volume
+      de falhas silenciosas se mostrar um problema real de operação.
+
+## Limitações conhecidas (v1)
+
+Três decisões deliberadas, cada uma aceita conscientemente por um motivo concreto — não
+são bugs a corrigir, são o comportamento pretendido desta versão.
+
+- **Editar a duração de um ponto não corrige o tempo já lançado no ClickUp.** O
+  comentário de correção (RN-06) carrega os valores novos, mas o lançamento de tempo
+  (`time_entry`, RF-18) do envio original **não** é alterado nem relançado. Relançar
+  inflaria as horas da pessoa no relatório nativo do ClickUp — pior do que o
+  lançamento original ficar um pouco desatualizado. Quem precisa do número certo tem o
+  comentário de correção e o próprio controlbio (RN-11: o ponto é a fonte da verdade).
+- **Tarefa concluída na mesma sprint não gera substituta — só recebe comentário.**
+  Quando o índice local aponta para uma tarefa que já está em status concluído/cancelado
+  **na sprint atual**, um novo ponto ainda comenta nela em vez de criar uma tarefa nova.
+  Fechar essa lacuna custaria uma chamada extra ao ClickUp por ponto, contra um teto de
+  ~100 req/min compartilhado com todo o time — caro demais para um caso de borda (reabrir
+  uma atividade encerrada na mesma sprint é incomum). **O caso que a RN-03 foi escrita
+  para cobrir — tarefa concluída numa sprint anterior — está tratado:** ali a busca local
+  falha (o índice já foi repontado, ou a chave nunca apontou pra lá), cai para a busca no
+  ClickUp e, encontrando a tarefa concluída, cria uma substituta na sprint atual.
+- **Comentário vai como texto rico, não como o markdown digitado.** A API do ClickUp não
+  renderiza markdown em comentário — só aceita um array de blocos com atributos
+  (`bold`/`italic`/etc.). O comentário sai com o cabeçalho (data e duração) em **negrito
+  de verdade**, e a descrição do ponto como um bloco de texto simples. Se a pessoa usou
+  marcadores de markdown na descrição (`**negrito**`, `- item`), eles aparecem
+  **literais** no ClickUp — o texto renderizado só formata "bonito" dentro do próprio
+  controlbio. Converter o markdown da descrição para o array de blocos do ClickUp
+  exigiria um parser próprio; descartado por não valer o esforço (YAGNI) para o volume
+  de descrições que usam formatação.
 
 ## 11. Referências
 

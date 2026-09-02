@@ -6,7 +6,7 @@
 
 | Campo         | Valor              |
 | ------------- | ------------------ |
-| Versão        | 1.12               |
+| Versão        | 1.13               |
 | Atualizado em | 2026-09-02         |
 | Stack visual  | Tailwind CSS v4 · shadcn/ui (new-york) · lucide-react · motion |
 
@@ -182,14 +182,36 @@ referenciam sempre o **token semântico** (`bg-primary`, `text-muted-foreground`
   refazer a query a cada toque); inclui atalhos **Marcar todos** / **Limpar**. Padrão em **/** (Relatórios),
   ver `src/app/(app)/user-multiselect.tsx`.
 - **Badge:** status/rótulos curtos. Convenção: ativo = `secondary`/`default`; inativo/neutro = `outline`;
-  erro/alerta = `destructive`; alerta leve (algo deu certo, mas com ressalva) = `warning` (v1.12) — ex.:
-  badge de sincronização do ClickUp no card do ponto quando o ponto foi enviado mas caiu no backlog em
-  vez de uma sprint (`docs/specs/011-integracao-clickup/design.md` §6.4).
+  erro/alerta = `destructive`; alerta leve (algo deu certo, mas com ressalva) = `warning` (v1.12).
+- **Badge de sincronização (ClickUp, v1.13):** padrão de indicador de estado assíncrono no card do
+  ponto (`src/app/(app)/ponto/clickup-sync-badge.tsx`, spec `011-integracao-clickup`). Cinco estados,
+  cada um com seu token e seu ícone `lucide-react`:
+  - `pending` — badge `variant="outline"` com `text-muted-foreground`, ícone `Clock`; rótulo
+    "sincronizando".
+  - `synced` — badge `variant="secondary"`, ícone `ExternalLink`; rótulo "sincronizado". O badge
+    inteiro é um link (`<a target="_blank">`) para a tarefa no ClickUp.
+  - `synced` com `clickup_sprint_source = 'backlog'` — mesma forma, mas na variante `warning` (v1.12)
+    com ícone `AlertTriangle`; rótulo "sem sprint" — o ponto chegou ao ClickUp, só que caiu no destino
+    de reserva em vez de uma sprint (RF-07/CA-21 da spec 011).
+  - `failed` — badge `variant="destructive"` com `AlertTriangle`, mais um botão `variant="ghost"
+    size="icon"` de reenviar (`RefreshCw`, gira durante o reenvio) ao lado.
+  - `off` — não renderiza nada (registro nascido com a integração desligada para aquele projeto).
+  - **Alvo de toque:** um pseudo-elemento `::before` (`before:absolute before:-inset-3`) estica a área
+    clicável a ≥44px sem alterar a altura visível da linha — necessário porque o badge em si é
+    compacto e a densidade do card não pode aumentar por causa dele.
+  - **Transição (`motion`):** troca de estado com `AnimatePresence mode="wait"` + fade/slide vertical
+    de 4px, 150ms `ease-out` (mesma receita de §7); cai para fade puro em `prefers-reduced-motion`.
+  - No mobile o rótulo de texto some (`hidden sm:inline`) e sobra só o ícone, mantendo o alvo de 44px.
 - **Rich text:** padrão **Markdown**. Edição via textarea + mini-toolbar (negrito/itálico/link/lista) +
   preview; exibição via componente próprio `<Markdown>` (`components/ui/markdown.tsx`), que é **seguro por
   construção** (monta nós React, sem `dangerouslySetInnerHTML`; links só com esquema `http(s)`/`mailto`).
   Subset: negrito, itálico, código, links, listas, parágrafos. Não usamos editores WYSIWYG/libs externas.
-- **Formulários:** padrão `useActionState` + Server Action (sem react-hook-form). Erros por campo inline.
+- **Formulários:** todo formulário usa **React Hook Form + Zod** (`zodResolver`) — nunca
+  `useActionState` para guardar valor de campo; no React 19 ele limpa campos não controlados ao fim
+  da `action`, inclusive em erro de validação. `CLAUDE.md` §7 é a fonte da verdade dessa regra. A
+  mutação continua via Server Action, chamada em `handleSubmit(onValid)`; erros por campo vêm de
+  `formState.errors`, estado de envio de `formState.isSubmitting`. Padrão de referência:
+  `src/app/(app)/ponto/ponto-form.tsx`.
 - **Feedback:** ver §10 (Estados de erro) para a convenção completa. Em resumo: sucesso de ação →
   `toast.success`; erro de campo/validação e erro de negócio retornado → **inline** no formulário; erro
   **inesperado** (Server Action que lança) → `toast.error` via `notifyUnexpectedError`.
