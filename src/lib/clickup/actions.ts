@@ -10,6 +10,7 @@ import type { Project } from "@/lib/ponto/validation";
 import { todayBrasiliaISO } from "@/lib/tz";
 import { getServiceClient, getProjectConfigForEdit } from "./data";
 import { upsertProjectConfig, type ProjectConfig } from "./config";
+import { listMembers, type ClickUpMember } from "./members";
 import { countFailedJobs } from "./queue";
 import { pickSprintList, type ClickUpList, type SprintPick } from "./sprint";
 import { findMissingConfiguredStatuses, type ClickUpStatus } from "./status";
@@ -99,6 +100,43 @@ export async function fetchListStatuses(
   await requirePermission("integracao:configurar");
   const client = requireServiceClient();
   return client.getListStatuses(listId);
+}
+
+/**
+ * Resultado de `fetchMembers` — mesmo formato de `ConnectionStatus`
+ * (`configured`/`ok` separados): sem token configurado não é um "erro" a
+ * lançar, é um estado normal do ambiente (dev/testes sem credencial), e o
+ * formulário de usuário (Tarefa 14) precisa distinguir isso de uma falha real
+ * na chamada para degradar de forma diferente em cada caso.
+ */
+export type FetchMembersResult =
+  | { configured: false }
+  | { configured: true; ok: true; members: ClickUpMember[] }
+  | { configured: true; ok: false; error: string };
+
+/**
+ * Membros do workspace, para o `<select>` de vínculo do usuário com o
+ * ClickUp (spec 011, Tarefa 14, RF-12). Guarda com `usuarios:editar`: quem
+ * acessa esta lista é o formulário de usuário (criar/editar), não a tela de
+ * integração — `criar`/`editar` são permissões só de admin, então o guard
+ * cobre os dois modos do formulário.
+ */
+export async function fetchMembers(): Promise<FetchMembersResult> {
+  await requirePermission("usuarios:editar");
+
+  const client = getServiceClient();
+  if (!client) return { configured: false };
+
+  try {
+    const members = await listMembers(client);
+    return { configured: true, ok: true, members };
+  } catch (err) {
+    return {
+      configured: true,
+      ok: false,
+      error: err instanceof Error ? err.message : "Erro ao consultar o ClickUp.",
+    };
+  }
 }
 
 export type SaveConfigResult =

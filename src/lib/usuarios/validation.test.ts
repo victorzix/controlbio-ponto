@@ -53,6 +53,30 @@ describe("createUserSchema", () => {
     expect(createUserSchema.safeParse({ ...base, password: "123" }).success).toBe(false);
   });
 
+  it("aceita vínculo com o ClickUp ausente (opcional — RN-09)", () => {
+    const r = createUserSchema.safeParse(base);
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.clickupUserId).toBeUndefined();
+  });
+
+  it("trata string vazia de clickupUserId como 'sem vínculo'", () => {
+    const r = createUserSchema.safeParse({ ...base, clickupUserId: "" });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.clickupUserId).toBeUndefined();
+  });
+
+  it("converte o id do membro do ClickUp (string) para número", () => {
+    const r = createUserSchema.safeParse({ ...base, clickupUserId: "123" });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.clickupUserId).toBe(123);
+  });
+
+  it("rejeita vínculo com o ClickUp inválido (não numérico)", () => {
+    expect(
+      createUserSchema.safeParse({ ...base, clickupUserId: "abc" }).success,
+    ).toBe(false);
+  });
+
   it("rejeita e-mail inválido quando informado", () => {
     expect(createUserSchema.safeParse({ ...base, email: "nao-email" }).success).toBe(false);
   });
