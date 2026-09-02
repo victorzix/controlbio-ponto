@@ -1607,7 +1607,11 @@ export async function claimJobs(limit: number): Promise<ClickUpSyncJob[]> {
      )
     returning *
   `);
-  return rows as unknown as ClickUpSyncJob[];
+  // ATENÇÃO: `db.execute` com SQL cru devolve as colunas em snake_case — o
+  // Drizzle só faz o mapeamento camelCase no query builder. Um cast direto para
+  // `ClickUpSyncJob[]` compila e devolve objetos com TODOS os campos undefined.
+  // Mapeie explicitamente (`mapJobRow`).
+  return rows.map(mapJobRow);
 }
 ```
 
