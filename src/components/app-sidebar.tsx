@@ -8,6 +8,7 @@ import {
   BarChart3,
   Clock3,
   Users,
+  Plug,
   LogOut,
   Menu,
   X,
@@ -27,6 +28,7 @@ type AppSidebarProps = {
   user: { name: string; username: string; email: string | null };
   canVerPonto: boolean;
   canReadUsuarios: boolean;
+  canConfigurarIntegracao: boolean;
 };
 
 type NavItem = {
@@ -56,6 +58,7 @@ export function AppSidebar({
   user,
   canVerPonto,
   canReadUsuarios,
+  canConfigurarIntegracao,
 }: AppSidebarProps) {
   const pathname = usePathname();
   const reduceMotion = useReducedMotion();
@@ -91,6 +94,9 @@ export function AppSidebar({
     ...(canVerPonto ? [{ href: "/ponto", label: "Ponto", icon: Clock3 }] : []),
     ...(canReadUsuarios
       ? [{ href: "/usuarios", label: "Usuários", icon: Users }]
+      : []),
+    ...(canConfigurarIntegracao
+      ? [{ href: "/integracao", label: "Integração", icon: Plug }]
       : []),
   ];
 

@@ -18,6 +18,7 @@ export default async function AppLayout({
 
   const canReadUsuarios = can(user.role, "usuarios:ler");
   const canVerPonto = can(user.role, "ponto:ver_proprio");
+  const canConfigurarIntegracao = can(user.role, "integracao:configurar");
 
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
@@ -25,6 +26,7 @@ export default async function AppLayout({
         user={{ name: user.name, username: user.username, email: user.email }}
         canVerPonto={canVerPonto}
         canReadUsuarios={canReadUsuarios}
+        canConfigurarIntegracao={canConfigurarIntegracao}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">
