@@ -207,6 +207,15 @@ export function planRetry(input: {
  * conseguíssemos registrar a falha, o job ficaria travado em `running` para
  * sempre (foi marcado assim por `claimJobs`) — melhor logar e deixar o worker
  * tentar de novo depois do que propagar o erro.
+ *
+ * Quando `planRetry` decide que a falha é **definitiva** (`status: "failed"`),
+ * o próprio registro de ponto também vira `clickupSyncStatus: "failed"` — na
+ * MESMA transação do job, igual a `completeJob` — para nunca deixar o job
+ * `failed` com o ponto ainda dizendo `pending` se o processo cair entre as
+ * duas escritas (CA-11, RF-13: é o que faz o card mostrar o estado de falha
+ * e oferecer o reenvio). Um retry com backoff (`status: "pending"`) ainda
+ * está em voo — o registro continua `pending`, não vira `failed` a cada
+ * tentativa transitória.
  */
 export async function failJob(
   jobId: string,
@@ -216,23 +225,33 @@ export async function failJob(
   try {
     const db = await getDb();
     const rows = await db
-      .select({ attempts: clickupSyncJobs.attempts })
+      .select({ attempts: clickupSyncJobs.attempts, entryId: clickupSyncJobs.entryId })
       .from(clickupSyncJobs)
       .where(eq(clickupSyncJobs.id, jobId))
       .limit(1);
-    const attempts = rows[0]?.attempts ?? 0;
+    const job = rows[0];
+    const attempts = job?.attempts ?? 0;
 
     const plan = planRetry({ error: err, attempts, maxAttempts, now: new Date() });
 
-    await db
-      .update(clickupSyncJobs)
-      .set({
-        status: plan.status,
-        nextRunAt: plan.nextRunAt,
-        attempts: plan.attempts,
-        lastError: err.message,
-      })
-      .where(eq(clickupSyncJobs.id, jobId));
+    await db.transaction(async (tx) => {
+      await tx
+        .update(clickupSyncJobs)
+        .set({
+          status: plan.status,
+          nextRunAt: plan.nextRunAt,
+          attempts: plan.attempts,
+          lastError: err.message,
+        })
+        .where(eq(clickupSyncJobs.id, jobId));
+
+      if (plan.status === "failed" && job?.entryId) {
+        await tx
+          .update(registrosPonto)
+          .set({ clickupSyncStatus: "failed" })
+          .where(eq(registrosPonto.id, job.entryId));
+      }
+    });
   } catch (e) {
     console.error("clickup: falha ao registrar failJob do job", jobId, e);
   }
@@ -242,17 +261,34 @@ export async function failJob(
  * Reenvia manualmente um job `failed` para a fila. Mantém o `stage` atual
  * de propósito: o retry retoma de onde o job parou, não refaz etapas já
  * concluídas (RN-13).
+ *
+ * Também volta o registro de ponto para `clickupSyncStatus: "pending"` — na
+ * MESMA transação — porque é verdade imediata (o trabalho está na fila de
+ * novo) e é o que tira o card do estado "falhou" assim que a pessoa clica em
+ * "reenviar" (RF-14), sem depender do worker rodar para o card deixar de
+ * mentir.
  */
 export async function retryJob(jobId: string): Promise<void> {
   const db = await getDb();
-  await db
-    .update(clickupSyncJobs)
-    .set({
-      status: "pending",
-      attempts: 0,
-      nextRunAt: new Date(),
-    })
-    .where(eq(clickupSyncJobs.id, jobId));
+  await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(clickupSyncJobs)
+      .set({
+        status: "pending",
+        attempts: 0,
+        nextRunAt: new Date(),
+      })
+      .where(eq(clickupSyncJobs.id, jobId))
+      .returning({ entryId: clickupSyncJobs.entryId });
+
+    const entryId = updated[0]?.entryId;
+    if (entryId) {
+      await tx
+        .update(registrosPonto)
+        .set({ clickupSyncStatus: "pending" })
+        .where(eq(registrosPonto.id, entryId));
+    }
+  });
 }
 
 /** Total de jobs em `failed` — alimenta o alerta/painel do admin (RF-14). */
