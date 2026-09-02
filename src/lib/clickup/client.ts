@@ -26,7 +26,7 @@ export type ClickUpClient = {
   createTask(listId: string, input: CreateTaskInput): Promise<ClickUpTask>;
   updateTask(taskId: string, input: UpdateTaskInput): Promise<void>;
   moveTaskToList(taskId: string, listId: string): Promise<void>;
-  createComment(taskId: string, markdown: string): Promise<string>;
+  createComment(taskId: string, parts: CommentPart[]): Promise<string>;
   createTimeEntry(input: TimeEntryInput, token: string): Promise<string>;
 };
 
@@ -48,6 +48,14 @@ export type CreateTaskInput = {
 };
 
 export type UpdateTaskInput = { status?: string; addAssignees?: number[] };
+
+/**
+ * Pedaço de um comentário. A API **não interpreta markdown** em comentário
+ * (design §4): `comment_text` é texto puro e formatação só existe via o array
+ * `comment`, com o atributo em cada parte. Por isso o corpo é montado em
+ * partes, e não como uma string.
+ */
+export type CommentPart = { text: string; attributes?: { bold?: boolean } };
 
 export type TimeEntryInput = {
   taskId: string;
@@ -276,11 +284,14 @@ export function createClickUpClient(opts: {
       );
     },
 
-    async createComment(taskId: string, markdown: string) {
+    async createComment(taskId: string, parts: CommentPart[]) {
+      // `comment` (array de partes) e `comment_text` (texto puro) são
+      // alternativos — não se combinam no mesmo request.
       const data = (await request(`/v2/task/${taskId}/comment`, {
         method: "POST",
-        body: JSON.stringify({ comment_text: markdown }),
+        body: JSON.stringify({ comment: parts }),
       })) as { id: string };
+      // O id vem na RAIZ da resposta (`{ id, hist_id, date }`), não sob `data`.
       return String(data.id);
     },
 

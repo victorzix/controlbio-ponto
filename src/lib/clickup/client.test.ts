@@ -98,6 +98,26 @@ describe("ClickUpClient", () => {
     expect(calls[0].init?.method).toBe("PUT");
   });
 
+  it("comenta com o array `comment`, não com markdown em `comment_text`", async () => {
+    // A API não interpreta markdown em comentário (design §4): formatação só
+    // existe via array de partes `{ text, attributes }`. O id vem na RAIZ da
+    // resposta, não sob `data`.
+    const { c, calls } = client([
+      { match: "/v2/task/t1/comment", body: { id: "c1", hist_id: "h1", date: "1" } },
+    ]);
+    const id = await c.createComment("t1", [
+      { text: "25/06/2026 · 3h 20min", attributes: { bold: true } },
+      { text: "\n\nConfigurei o SSO." },
+    ]);
+    expect(id).toBe("c1");
+    const body = JSON.parse(String(calls[0].init?.body));
+    expect(body.comment_text).toBeUndefined();
+    expect(body.comment).toEqual([
+      { text: "25/06/2026 · 3h 20min", attributes: { bold: true } },
+      { text: "\n\nConfigurei o SSO." },
+    ]);
+  });
+
   it("lança tempo com o token pessoal, não com o de serviço", async () => {
     const { c, calls } = client([
       { match: "/time_entries", body: { data: { id: "te1" } } },
