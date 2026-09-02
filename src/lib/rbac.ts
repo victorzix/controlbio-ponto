@@ -22,6 +22,8 @@ export const PERMISSIONS = [
   "usuarios:criar",
   "usuarios:editar",
   "usuarios:desativar",
+  // Integração
+  "integracao:configurar", // configurar a integração com o ClickUp (spec 011)
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
