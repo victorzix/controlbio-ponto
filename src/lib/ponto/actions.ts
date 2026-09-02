@@ -161,6 +161,7 @@ export async function updateEntry(
   }
 
   const { title, workDate, hours, minutes, description, link, project } = parsed.data;
+  const syncOn = isSyncEnabled();
 
   // Atualização e enfileiramento na MESMA transação, pelo mesmo motivo do
   // `createEntry`: se caíssem em transações separadas, um crash entre as duas
@@ -189,14 +190,19 @@ export async function updateEntry(
     // RN-06: um registro já sincronizado nunca é reescrito — a edição vira
     // um comentário de correção na tarefa. Se ainda não chegou lá, tenta o
     // envio inicial de novo (pending/failed); se nasceu com a integração
-    // desligada (`off`), não enfileira nada.
-    if (found.clickupTaskId) {
-      await enqueuePushEntry(tx, { entryId: found.id, kind: "correction" });
-    } else if (
-      found.clickupSyncStatus === "pending" ||
-      found.clickupSyncStatus === "failed"
-    ) {
-      await enqueuePushEntry(tx, { entryId: found.id, kind: "push_entry" });
+    // desligada (`off`), não enfileira nada. A chave geral (`isSyncEnabled`)
+    // é absoluta: com a integração desligada, editar não pode reativar a
+    // sincronização de um registro nem enfileirar nada — mesma regra de
+    // `createEntry`/`duplicateEntry`/`finalizeTracking`.
+    if (syncOn) {
+      if (found.clickupTaskId) {
+        await enqueuePushEntry(tx, { entryId: found.id, kind: "correction" });
+      } else if (
+        found.clickupSyncStatus === "pending" ||
+        found.clickupSyncStatus === "failed"
+      ) {
+        await enqueuePushEntry(tx, { entryId: found.id, kind: "push_entry" });
+      }
     }
 
     return found;
