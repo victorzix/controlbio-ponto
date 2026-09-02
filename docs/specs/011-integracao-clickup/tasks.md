@@ -1200,6 +1200,13 @@ export function createRateLimiter(opts: {
     },
 
     observe({ remaining, resetAt }) {
+      // `resetAt` no passado é leitura velha: a janela do ClickUp já virou e
+      // essa contagem não vale mais nada. Ignoramos por completo — senão uma
+      // resposta atrasada com `remaining: 0` prende `tokens` em zero e a fila
+      // dorme sem motivo, com o balde do ClickUp já cheio.
+      const stale = resetAt !== null && resetAt.getTime() <= now();
+      if (stale) return;
+
       if (remaining !== null) {
         // O servidor é a autoridade: nunca acreditamos em mais do que ele diz.
         tokens = Math.min(tokens, remaining);
@@ -1654,14 +1661,20 @@ O coração da feature. É aqui que RN-01 a RN-13 viram código.
     description: string; project: Project;
   };
   export function runJob(job: ClickUpSyncJob, deps: PipelineDeps): Promise<void>;
-  export function buildCommentMarkdown(entry: PipelineEntry, kind: JobKind): string;
+  /** Corpo rich text do comentário — a API NÃO aceita markdown (design §4). */
+  export function buildCommentBody(entry: PipelineEntry, kind: JobKind): CommentPart[];
   ```
+- Também altera `src/lib/clickup/client.ts` (Task 8): `createComment` passa a
+  receber `CommentPart[]` e a enviar `{ comment: partes }` no lugar de
+  `{ comment_text: markdown }`. O tipo `CommentPart` (`{ text: string;
+  attributes?: { bold?: boolean } }`) é exportado pelo client, e o teste de
+  `createComment` no `client.test.ts` é atualizado junto.
 
 - [ ] **Step 1: Escrever o teste do comentário (o mais simples primeiro)**
 
 ```ts
 import { describe, it, expect } from "vitest";
-import { buildCommentMarkdown } from "./pipeline";
+import { buildCommentBody } from "./pipeline";
 
 const entry = {
   id: "e1", userId: "u1", clickupUserId: 7,
@@ -1670,16 +1683,27 @@ const entry = {
   project: "labphase" as const,
 };
 
-describe("buildCommentMarkdown", () => {
-  it("põe data e tempo em negrito no topo", () => {
-    const md = buildCommentMarkdown(entry, "push_entry");
-    expect(md).toContain("**25/06/2026 · 3h 20min**");
-    expect(md).toContain("Configurei o SSO");
+describe("buildCommentBody", () => {
+  it("põe data e tempo em negrito de verdade, não markdown", () => {
+    const partes = buildCommentBody(entry, "push_entry");
+    expect(partes[0]).toEqual({
+      text: "25/06/2026 · 3h 20min",
+      attributes: { bold: true },
+    });
+    // Sem asterisco: o ClickUp não interpreta markdown em comentário.
+    expect(partes[0].text).not.toContain("*");
+  });
+
+  it("manda a descrição como bloco de texto sem atributo", () => {
+    const partes = buildCommentBody(entry, "push_entry");
+    expect(partes[1].text).toContain("Configurei o SSO");
+    expect(partes[1].attributes).toBeUndefined();
   });
 
   it("marca a correção quando o ponto foi editado — RN-06", () => {
-    expect(buildCommentMarkdown(entry, "correction"))
-      .toContain("**Correção · 25/06/2026 · 3h 20min**");
+    const partes = buildCommentBody(entry, "correction");
+    expect(partes[0].text).toBe("Correção · 25/06/2026 · 3h 20min");
+    expect(partes[0].attributes).toEqual({ bold: true });
   });
 });
 ```
@@ -1800,9 +1824,11 @@ export async function runJob(job: ClickUpSyncJob, deps: PipelineDeps): Promise<v
 **A regra que não pode ser quebrada:** cada `saveProgress` acontece **depois** da chamada
 ao ClickUp e **antes** da etapa seguinte. É só isso que impede o retry de duplicar.
 
-`buildCommentMarkdown` usa `formatWorkedMinutes` de `@/lib/ponto/validation` para o tempo
-e formata a data como `dd/MM/yyyy` a partir da string `YYYY-MM-DD` (sem `new Date`, para
-não sofrer com fuso — mesmo cuidado de `src/lib/ponto/dates.ts`).
+`buildCommentBody` usa `formatWorkedMinutes` de `@/lib/ponto/validation` para o tempo e
+formata a data como `dd/MM/yyyy` a partir da string `YYYY-MM-DD` (sem `new Date`, para
+não sofrer com fuso — mesmo cuidado de `src/lib/ponto/dates.ts`). Devolve duas partes: o
+cabeçalho com `attributes: { bold: true }` e a descrição sem atributo, precedida de
+`\n\n`. **Nada de asterisco** — quem dá o negrito é o atributo, não markdown.
 
 - [ ] **Step 5: Rodar e ver passar**
 

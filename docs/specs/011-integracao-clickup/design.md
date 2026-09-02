@@ -205,16 +205,33 @@ resolve ──► comment ──► time_entry ──► finish ──► done
 
 ### `comment` — registrar o trabalho (RF-05)
 
-`POST /v2/task/{id}/comment` com:
+`POST /v2/task/{id}/comment`.
 
+**A API não aceita markdown em comentário.** O campo `comment_text` é texto puro:
+markdown enviado ali aparece como asterisco e hífen literais. Formatação exige o array
+`comment`, com objetos `{ text, attributes }` (`bold`, `italic`, `code`, `link`, `list`).
+Os dois formatos são alternativos — não se combinam no mesmo request.
+
+Decisão: **cabeçalho rico, descrição crua**. O corpo é o array `comment` com dois itens:
+
+```json
+{
+  "comment": [
+    { "text": "25/06/2026 · 3h 20min", "attributes": { "bold": true } },
+    { "text": "\n\nConfigurei o SSO e testei com dois usuários." }
+  ]
+}
 ```
-**25/06/2026 · 3h 20min**
 
-<descrição em markdown do ponto>
-```
+A data e o tempo ficam em **negrito de verdade**; a descrição vai como um bloco de texto.
+Descrição em prosa — o caso comum — fica perfeita. Se a pessoa usou markdown na
+descrição, os marcadores aparecem literais: aceito conscientemente, porque converter
+markdown para o array do ClickUp exigiria um parser próprio (alternativa avaliada e
+descartada por YAGNI).
 
-Para `kind = correction`, o cabeçalho vira `**Correção · 25/06/2026 · 3h 20min**`
-(**RN-06**). Grava `clickup_comment_id`. → `time_entry`
+Para `kind = correction`, o texto em negrito vira `Correção · 25/06/2026 · 3h 20min`
+(**RN-06**). O id vem no **nível raiz** da resposta (`{ id, hist_id, date }`), não sob
+`data` — é ele que vai para `clickup_comment_id`. → `time_entry`
 
 ### `time_entry` — lançar tempo (RF-18)
 
