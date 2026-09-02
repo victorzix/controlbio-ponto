@@ -69,6 +69,9 @@ export const finalizeTrackingSchema = z
     title: titleField,
     project: projectField,
     segments: z.array(finalizeSegmentSchema).min(1, "Nenhum bloco para salvar."),
+    // Move a tarefa do ClickUp para o status de revisão ao finalizar (RF-09).
+    // Default `true`: o caso comum é "terminei, revise" — desmarcar é a exceção.
+    moveToReview: z.boolean().default(true),
   })
   .refine((v) => v.segments.every((s) => s.workDate <= todayBrasiliaISO()), {
     message: "O dia não pode ser no futuro.",

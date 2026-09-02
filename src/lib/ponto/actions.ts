@@ -4,6 +4,8 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { registrosPonto } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/guard";
+import { initialSyncStatus, isSyncEnabled } from "@/lib/clickup/enabled";
+import { enqueuePushEntry } from "@/lib/clickup/queue";
 import { createEntrySchema, updateEntrySchema } from "./validation";
 import {
   listOwnEntries,
@@ -111,12 +113,29 @@ export async function createEntry(input: unknown): Promise<PontoActionState> {
       description,
       link: linkValue,
       project,
+      clickupSyncStatus: initialSyncStatus(),
     });
     remaining -= dayMinutes;
     dayOffset += 1;
   }
 
-  await db.insert(registrosPonto).values(rows);
+  const syncOn = isSyncEnabled();
+
+  // O job nasce na MESMA transação do ponto: ou os dois existem, ou nenhum.
+  // Se caísse entre salvar o ponto e enfileirar o job em transações separadas,
+  // um crash no meio perderia a sincronização silenciosamente, sem rastro.
+  await db.transaction(async (tx) => {
+    const created = await tx
+      .insert(registrosPonto)
+      .values(rows)
+      .returning({ id: registrosPonto.id });
+
+    if (syncOn) {
+      for (const { id } of created) {
+        await enqueuePushEntry(tx, { entryId: id, kind: "push_entry" });
+      }
+    }
+  });
 
   return { ok: true, created: rows.length };
 }
@@ -143,20 +162,47 @@ export async function updateEntry(
 
   const { title, workDate, hours, minutes, description, link, project } = parsed.data;
 
-  const updated = await db
-    .update(registrosPonto)
-    .set({
-      title,
-      workDate,
-      workedMinutes: hours * 60 + minutes,
-      description,
-      link: link && link.length > 0 ? link : null,
-      project,
-    })
-    .where(and(eq(registrosPonto.id, id), eq(registrosPonto.userId, user.id)))
-    .returning({ id: registrosPonto.id });
+  // Atualização e enfileiramento na MESMA transação, pelo mesmo motivo do
+  // `createEntry`: se caíssem em transações separadas, um crash entre as duas
+  // deixaria a edição salva sem o job correspondente, sem deixar rastro.
+  const row = await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(registrosPonto)
+      .set({
+        title,
+        workDate,
+        workedMinutes: hours * 60 + minutes,
+        description,
+        link: link && link.length > 0 ? link : null,
+        project,
+      })
+      .where(and(eq(registrosPonto.id, id), eq(registrosPonto.userId, user.id)))
+      .returning({
+        id: registrosPonto.id,
+        clickupTaskId: registrosPonto.clickupTaskId,
+        clickupSyncStatus: registrosPonto.clickupSyncStatus,
+      });
 
-  if (updated.length === 0) {
+    const found = updated[0];
+    if (!found) return null;
+
+    // RN-06: um registro já sincronizado nunca é reescrito — a edição vira
+    // um comentário de correção na tarefa. Se ainda não chegou lá, tenta o
+    // envio inicial de novo (pending/failed); se nasceu com a integração
+    // desligada (`off`), não enfileira nada.
+    if (found.clickupTaskId) {
+      await enqueuePushEntry(tx, { entryId: found.id, kind: "correction" });
+    } else if (
+      found.clickupSyncStatus === "pending" ||
+      found.clickupSyncStatus === "failed"
+    ) {
+      await enqueuePushEntry(tx, { entryId: found.id, kind: "push_entry" });
+    }
+
+    return found;
+  });
+
+  if (!row) {
     return { error: "Registro não encontrado." };
   }
 
@@ -194,14 +240,28 @@ export async function duplicateEntry(id: string): Promise<PontoActionState> {
     return { error: "Registro não encontrado." };
   }
 
-  await db.insert(registrosPonto).values({
-    userId: user.id,
-    title: original.title,
-    workDate: original.workDate,
-    workedMinutes: original.workedMinutes,
-    description: original.description,
-    link: original.link,
-    project: original.project,
+  const syncOn = isSyncEnabled();
+
+  // Mesmo tratamento de `createEntry`: é uma criação — job nasce junto com o
+  // registro, na mesma transação.
+  await db.transaction(async (tx) => {
+    const [created] = await tx
+      .insert(registrosPonto)
+      .values({
+        userId: user.id,
+        title: original.title,
+        workDate: original.workDate,
+        workedMinutes: original.workedMinutes,
+        description: original.description,
+        link: original.link,
+        project: original.project,
+        clickupSyncStatus: initialSyncStatus(),
+      })
+      .returning({ id: registrosPonto.id });
+
+    if (syncOn) {
+      await enqueuePushEntry(tx, { entryId: created.id, kind: "push_entry" });
+    }
   });
 
   return { ok: true, created: 1 };

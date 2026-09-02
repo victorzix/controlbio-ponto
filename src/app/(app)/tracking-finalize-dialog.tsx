@@ -24,7 +24,10 @@ import { DateField } from "@/components/ui/date-field";
 import { MarkdownEditor } from "@/app/(app)/ponto/markdown-editor";
 import { cn } from "@/lib/utils";
 
-type FinalizeValues = z.infer<typeof finalizeTrackingSchema>;
+// `z.input` (não `z.infer`/output): `moveToReview` tem `.default(true)` no
+// schema, o que o torna opcional na ENTRADA (o que o form/resolver aceitam) e
+// obrigatório na SAÍDA — usar o tipo de saída aqui quebraria o resolver do RHF.
+type FinalizeValues = z.input<typeof finalizeTrackingSchema>;
 
 const timeFmt = new Intl.DateTimeFormat("pt-BR", {
   hour: "2-digit",
@@ -55,6 +58,9 @@ function buildDefaults(tracking: ActiveTracking): FinalizeValues {
         description: "",
       };
     }),
+    // Sem UI para desmarcar ainda (fora do escopo desta task) — mantém o
+    // comportamento padrão do schema: finalizar sempre move para revisão.
+    moveToReview: true,
   };
 }
 
