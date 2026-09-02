@@ -31,3 +31,45 @@ export function findStatusByName(
   const target = normalizeTitle(name);
   return statuses.find((s) => normalizeTitle(s.status) === target) ?? null;
 }
+
+export type StatusConfigIssue = {
+  field: "inProgressStatus" | "doneStatus";
+  status: string;
+};
+
+/**
+ * Confere se os status configurados (andamento/obrigatório; conclusão/
+ * opcional) existem na Lista de **destino** informada — spec 011, Tarefa 13
+ * (fix de review). Existe porque a tela de configuração lista as opções de
+ * status a partir da Lista de **backlog** (é a única Lista que o admin já
+ * escolheu naquele ponto do formulário), mas o pipeline aplica esses status
+ * na Lista de destino resolvida por `pickSprintList` — normalmente uma
+ * sprint, não o backlog. Neste workspace o conjunto de status não é
+ * uniforme entre Listas de um mesmo Folder (algumas herdam do Folder,
+ * outras têm override por Lista), então um status válido no backlog pode
+ * não existir na sprint — e `updateTask`/`createTask` falhariam com 400 em
+ * produção sem aviso nenhum. Usa `findStatusByName` para a mesma comparação
+ * tolerante a caixa/acento que o pipeline já faz.
+ */
+export function findMissingConfiguredStatuses(
+  destinationStatuses: ClickUpStatus[],
+  config: { inProgressStatus: string; doneStatus: string | null },
+): StatusConfigIssue[] {
+  const issues: StatusConfigIssue[] = [];
+
+  if (!findStatusByName(destinationStatuses, config.inProgressStatus)) {
+    issues.push({
+      field: "inProgressStatus",
+      status: config.inProgressStatus,
+    });
+  }
+
+  if (
+    config.doneStatus &&
+    !findStatusByName(destinationStatuses, config.doneStatus)
+  ) {
+    issues.push({ field: "doneStatus", status: config.doneStatus });
+  }
+
+  return issues;
+}

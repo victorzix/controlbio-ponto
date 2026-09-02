@@ -12,7 +12,7 @@ import { getServiceClient, getProjectConfigForEdit } from "./data";
 import { upsertProjectConfig, type ProjectConfig } from "./config";
 import { countFailedJobs } from "./queue";
 import { pickSprintList, type ClickUpList, type SprintPick } from "./sprint";
-import type { ClickUpStatus } from "./status";
+import { findMissingConfiguredStatuses, type ClickUpStatus } from "./status";
 import { projectConfigSchema } from "./validation";
 
 /** Item simples de picker (Space/Folder). */
@@ -159,7 +159,17 @@ export async function saveProjectConfig(
 }
 
 export type TestConfigResult =
-  | { ok: true; listName: string; source: SprintPick["source"] }
+  | {
+      ok: true;
+      listName: string;
+      source: SprintPick["source"];
+      /**
+       * Avisos de status ausente na Lista de **destino** (não na de backlog,
+       * de onde vêm as opções dos pickers). Vazio = os dois status existem
+       * lá. Ver comentário abaixo sobre por que essa checagem existe.
+       */
+      statusIssues: string[];
+    }
   | { ok: false; error: string };
 
 /**
@@ -167,6 +177,19 @@ export type TestConfigResult =
  * busca as Listas do Folder e roda `pickSprintList` com a data de **hoje em
  * Brasília** (`todayBrasiliaISO` — nunca `todayISODate`, que usa o fuso do
  * servidor). Devolve o nome da Lista escolhida e como isso foi decidido.
+ *
+ * Também valida os status: os pickers de "em andamento"/"concluído" listam
+ * status da Lista de **backlog** (é a única Lista que o admin necessariamente
+ * já escolheu quando chega neles), mas o pipeline aplica esses status na
+ * Lista de **destino** resolvida por `pickSprintList` — normalmente uma
+ * sprint, não o backlog. Nesse workspace o conjunto de status **não** é
+ * uniforme: um Folder herda o status do próprio Folder (`cat_<folderId>`)
+ * para todas as Listas, outro tem sprints com override por Lista
+ * (`status_group: subcat_<listId>`) — nesse segundo caso, um status que
+ * existe no backlog pode não existir na sprint, e `updateTask` falharia com
+ * 400 em produção sem que a tela tivesse avisado nada. Por isso: busca os
+ * status da Lista de destino de verdade e confere com `findStatusByName`
+ * (mesma comparação tolerante a caixa/acento que o pipeline usa).
  */
 export async function testProjectConfig(
   project: Project,
@@ -201,7 +224,23 @@ export async function testProjectConfig(
       config.backlogListId,
     );
     const list = lists.find((l) => l.id === pick.listId);
-    return { ok: true, listName: list?.name ?? "—", source: pick.source };
+    const listName = list?.name ?? pick.listId;
+
+    // Status da Lista de DESTINO (a que `pickSprintList` resolveu) — não da
+    // Lista de backlog de onde vieram as opções dos pickers (ver
+    // `findMissingConfiguredStatuses` em status.ts para o porquê).
+    const destinationStatuses = await client.getListStatuses(pick.listId);
+    const missing = findMissingConfiguredStatuses(destinationStatuses, {
+      inProgressStatus: config.inProgressStatus,
+      doneStatus: config.doneStatus,
+    });
+    const statusIssues = missing.map((m) =>
+      m.field === "inProgressStatus"
+        ? `O status de andamento "${m.status}" não existe na Lista "${listName}".`
+        : `O status de conclusão "${m.status}" não existe na Lista "${listName}".`,
+    );
+
+    return { ok: true, listName, source: pick.source, statusIssues };
   } catch (err) {
     return {
       ok: false,

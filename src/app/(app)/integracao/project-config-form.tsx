@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm, useWatch, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery } from "@tanstack/react-query";
@@ -101,8 +101,32 @@ export function ProjectConfigForm({ project, projectLabel, initialConfig }: Prop
   const spaceId = useWatch({ control, name: "spaceId" });
   const folderId = useWatch({ control, name: "folderId" });
   const backlogListId = useWatch({ control, name: "backlogListId" });
+  const inProgressStatus = useWatch({ control, name: "inProgressStatus" });
+  const doneStatus = useWatch({ control, name: "doneStatus" });
   const sprintDateFormat = useWatch({ control, name: "sprintDateFormat" });
   const enabled = useWatch({ control, name: "enabled" });
+
+  // O resultado do "Testar" descreve uma configuração específica; se qualquer
+  // campo do qual ele depende mudar depois (mesmo sem salvar de novo), o
+  // resultado na tela passa a descrever uma configuração que não é mais a
+  // que está nos campos — limpa para não mostrar um veredito desatualizado.
+  // `isFirstRender` evita apagar um resultado só porque o formulário montou
+  // (o `useWatch` dispara no mount com os valores iniciais).
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    setTestResult(null);
+  }, [
+    spaceId,
+    folderId,
+    backlogListId,
+    inProgressStatus,
+    doneStatus,
+    sprintDateFormat,
+  ]);
 
   const spacesQuery = useQuery({
     queryKey: ["clickup", "spaces"],
@@ -320,6 +344,13 @@ export function ProjectConfigForm({ project, projectLabel, initialConfig }: Prop
             )}
           </div>
 
+          <p className="text-muted-foreground text-sm">
+            As opções abaixo vêm dos status da Lista de backlog. Se este Folder
+            usa status por Lista (em vez de um conjunto único por Folder), a
+            sprint de destino pode ter um conjunto diferente — confirme com
+            &quot;Testar&quot; depois de salvar.
+          </p>
+
           {/* Status "em andamento" */}
           <div className="flex flex-col gap-2">
             <Label htmlFor={`${project}-in-progress`}>Status &quot;em andamento&quot;</Label>
@@ -462,19 +493,32 @@ export function ProjectConfigForm({ project, projectLabel, initialConfig }: Prop
               role="status"
               className={cn(
                 "rounded-md border p-3 text-sm",
-                testResult.ok
-                  ? "border-border bg-muted"
-                  : "border-destructive/50 text-destructive",
+                !testResult.ok || testResult.statusIssues.length > 0
+                  ? "border-destructive/50"
+                  : "border-border bg-muted",
               )}
             >
               {testResult.ok ? (
                 <>
-                  Um ponto de hoje iria para a Lista{" "}
-                  <span className="font-medium">{testResult.listName}</span> —{" "}
-                  {sourceLabel(testResult.source)}.
+                  <p>
+                    Um ponto de hoje iria para a Lista{" "}
+                    <span className="font-medium">{testResult.listName}</span> —{" "}
+                    {sourceLabel(testResult.source)}.
+                  </p>
+                  {testResult.statusIssues.length > 0 ? (
+                    <ul className="text-destructive mt-2 list-disc pl-5">
+                      {testResult.statusIssues.map((msg) => (
+                        <li key={msg}>{msg}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-muted-foreground mt-2">
+                      Os status configurados existem nessa Lista.
+                    </p>
+                  )}
                 </>
               ) : (
-                testResult.error
+                <p className="text-destructive">{testResult.error}</p>
               )}
             </div>
           ) : null}
