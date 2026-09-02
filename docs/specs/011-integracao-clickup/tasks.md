@@ -37,7 +37,7 @@ Valem para **todas** as tarefas — não se repetem em cada uma.
 **Files:**
 - Modify: `src/db/schema.ts`
 - Modify: `src/lib/rbac.ts`
-- Create: `drizzle/` (migration gerada — nome definido pelo drizzle-kit)
+- Create: `src/db/migrations/` (migration gerada — nome definido pelo drizzle-kit; `out` do drizzle.config.ts)
 
 **Interfaces:**
 - Produces: enums `clickupSyncStatus`, `clickupJobKind`, `clickupJobStage`, `clickupJobStatus`; tabelas `clickupProjectConfig`, `clickupTaskLinks`, `clickupSyncJobs`; colunas novas em `users` e `registrosPonto`; permissão `integracao:configurar`.
@@ -167,7 +167,7 @@ npm run db:generate
 npm run db:migrate
 ```
 
-Esperado: um arquivo novo em `drizzle/` e a migração aplicada sem erro.
+Esperado: um arquivo novo em `src/db/migrations/` e a migração aplicada sem erro.
 
 - [ ] **Step 6: Verificar tipos**
 
@@ -177,7 +177,7 @@ Expected: sem erros.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/db/schema.ts src/lib/rbac.ts drizzle/
+git add src/db/schema.ts src/lib/rbac.ts src/db/migrations/
 git commit -m "feat(clickup): schema, enums e permissao da integracao"
 ```
 
