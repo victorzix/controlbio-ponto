@@ -125,6 +125,7 @@ async function resolveTask(
   config: ProjectConfig,
   assignee: number,
   deps: PipelineDeps,
+  ctx: RunContext,
 ): Promise<{ id: string; url: string }> {
   const tituloNormalizado = normalizeTitle(entry.title);
 
@@ -136,20 +137,14 @@ async function resolveTask(
     config.backlogListId,
   ).listId;
 
-  // 1. Índice local — o caminho comum, sem gastar requisição de busca.
+  // 1. Índice local — o caminho comum, sem gastar requisição de busca. Só vale
+  // quando o vínculo JÁ está na Lista de destino. Se a sprint virou, o atalho é
+  // proibido: mover a tarefa sem ler o status arrastaria para a sprint nova uma
+  // tarefa concluída (RN-03) justamente no cenário de carry over. Nesse caso
+  // caímos na busca, que classifica o status antes de decidir.
   const link = await deps.findLink(entry.project, tituloNormalizado);
-  if (link) {
-    if (link.sprintListId !== destino) {
-      // Carry over (RF-17): a atividade continua, a tarefa acompanha a sprint.
-      await deps.client.moveTaskToList(link.clickupTaskId, destino);
-      await deps.upsertLink({
-        project: entry.project,
-        normalizedTitle: tituloNormalizado,
-        clickupTaskId: link.clickupTaskId,
-        clickupTaskUrl: link.clickupTaskUrl,
-        sprintListId: destino,
-      });
-    }
+  if (link && link.sprintListId === destino) {
+    ctx.taskId = link.clickupTaskId;
 
     // O índice é por atividade, não por pessoa: quem lançou este ponto pode
     // ainda não ser responsável (RF-04). `add` só acrescenta, então repetir é
@@ -159,7 +154,8 @@ async function resolveTask(
     return { id: link.clickupTaskId, url: link.clickupTaskUrl };
   }
 
-  // 2. Busca no ClickUp — a tarefa pode ter nascido no planejamento da sprint.
+  // 2. Busca no ClickUp — a tarefa pode ter nascido no planejamento da sprint,
+  // ou ser a do vínculo numa sprint anterior (carry over, RF-17).
   const listIds = lists.map((l) => l.id);
   if (!listIds.includes(config.backlogListId)) listIds.push(config.backlogListId);
   const encontradas = await deps.client.findTasksInLists(listIds);
@@ -173,7 +169,10 @@ async function resolveTask(
   );
 
   if (existente) {
+    ctx.taskId = existente.id;
     if (existente.listId !== destino) {
+      // Carry over (RF-17): a atividade continua e a tarefa — que acabamos de
+      // confirmar que NÃO está concluída — acompanha a sprint.
       await deps.client.moveTaskToList(existente.id, destino);
     }
 
@@ -221,6 +220,14 @@ async function resolveTask(
 }
 
 /**
+ * Onde o job estava quando algo falhou. Existe para a recuperação de 404 poder
+ * decidir com precisão: rebobinar só é seguro em etapa que ainda não escreveu
+ * nada irreversível, e o vínculo só pode ser apagado se apontar para a tarefa
+ * que de fato sumiu.
+ */
+type RunContext = { stage: JobStage; taskId: string | null };
+
+/**
  * A tarefa tem que existir a partir da etapa `comment`: o mesmo `saveProgress`
  * que avançou o stage gravou o `clickupTaskId`. Não ter os dois é estado
  * inconsistente — insistir só queimaria tentativa.
@@ -240,24 +247,37 @@ async function runStages(
   job: ClickUpSyncJob,
   entry: PipelineEntry,
   config: ProjectConfig,
-  assignee: number,
   deps: PipelineDeps,
+  ctx: RunContext,
 ): Promise<void> {
   let stage: JobStage = job.stage;
   let taskId = job.clickupTaskId;
+  ctx.taskId = taskId;
 
   if (stage === "resolve") {
-    const tarefaResolvida = await resolveTask(entry, config, assignee, deps);
+    // RN-09: sem vínculo com um membro, a tarefa nasceria sem responsável e
+    // poluiria o board dos outros. É guarda DESTA etapa — a única que consome o
+    // responsável; barrar um job já resolvido não protegeria board nenhum.
+    const assignee = entry.clickupUserId;
+    if (assignee === null) {
+      throw new ClickUpError({
+        code: "SEM_VINCULO",
+        message: "Usuário sem vínculo com um membro do ClickUp.",
+        retryable: false,
+      });
+    }
+
+    const tarefaResolvida = await resolveTask(entry, config, assignee, deps, ctx);
     taskId = tarefaResolvida.id;
+    ctx.taskId = taskId;
     // Antes de avançar o stage, não depois: se esta gravação falhar, o retry
     // refaz o `resolve` (que converge para a mesma tarefa) e tenta de novo.
     // Depois do avanço, o ponto ficaria para sempre sem o link da tarefa.
     await deps.saveEntryTask(entry.id, tarefaResolvida.id, tarefaResolvida.url);
     await deps.saveProgress(job.id, { stage: "comment", clickupTaskId: taskId });
     stage = "comment";
+    ctx.stage = stage;
   }
-
-  if (stage === "done") return;
 
   const tarefa = requireTaskId(taskId, stage);
 
@@ -271,6 +291,7 @@ async function runStages(
       clickupCommentId: commentId,
     });
     stage = "time_entry";
+    ctx.stage = stage;
   }
 
   if (stage === "time_entry") {
@@ -301,6 +322,7 @@ async function runStages(
       await deps.saveProgress(job.id, { stage: "finish" });
     }
     stage = "finish";
+    ctx.stage = stage;
   }
 
   if (stage === "finish") {
@@ -314,20 +336,39 @@ async function runStages(
 }
 
 /**
- * A tarefa do índice não existe mais no ClickUp (404). Esquece o vínculo e volta
- * o job para o começo, para a próxima tentativa recriar (design §5.2).
+ * A tarefa não existe mais no ClickUp (404) — design §5.2.
+ *
+ * Duas decisões, ambas para não trocar um erro por uma duplicata:
+ *
+ * - **apagar o vínculo só se ele apontar para a tarefa que sumiu.** O índice
+ *   pode já ter avançado para outra tarefa (RN-03) enquanto este job carregava
+ *   a antiga; apagar às cegas destruiria um vínculo válido.
+ * - **rebobinar só a partir de `resolve` ou `comment`.** Aí nada irreversível
+ *   foi escrito e recomeçar é barato. De `time_entry` em diante o comentário —
+ *   e talvez o lançamento de tempo — já existem: recomeçar dobraria as horas da
+ *   pessoa por causa de um 404 que pode até ser transitório. Nesses casos o job
+ *   fica onde está, tenta de novo, falha e aparece para o admin. É o desfecho
+ *   honesto.
  */
-async function esquecerIndiceSeTarefaSumiu(
+async function recuperarTarefaSumiu(
   err: unknown,
   job: ClickUpSyncJob,
   entry: PipelineEntry,
+  ctx: RunContext,
   deps: PipelineDeps,
 ): Promise<void> {
   if (!(err instanceof ClickUpError) || err.code !== "TAREFA_SUMIU") return;
 
   try {
-    await deps.deleteLink(entry.project, normalizeTitle(entry.title));
-    await deps.saveProgress(job.id, { stage: "resolve" });
+    const tituloNormalizado = normalizeTitle(entry.title);
+    const link = await deps.findLink(entry.project, tituloNormalizado);
+    if (ctx.taskId && link?.clickupTaskId === ctx.taskId) {
+      await deps.deleteLink(entry.project, tituloNormalizado);
+    }
+
+    if (ctx.stage === "resolve" || ctx.stage === "comment") {
+      await deps.saveProgress(job.id, { stage: "resolve" });
+    }
   } catch {
     // Limpeza é o melhor esforço: o erro que importa é o original, relançado
     // logo abaixo, e é ele que a fila precisa classificar.
@@ -349,8 +390,17 @@ export async function runJob(
   // no ClickUp.
   if (!entry) return;
 
+  // Antes de qualquer guarda: um job que já percorreu tudo e caiu antes do
+  // `completeJob` volta para cá. Se o projeto tivesse sido desligado ou o
+  // vínculo removido nesse meio tempo, uma falha terminal aqui seria mentira —
+  // todas as escritas no ClickUp já deram certo — e deixaria o ponto sem chegar
+  // a `synced`.
+  if (job.stage === "done") return;
+
   // RN-08: projeto sem configuração — ou com a integração desligada — não envia
-  // nada. Terminal: insistir não resolve, o admin é que precisa agir.
+  // nada. Terminal: insistir não resolve, o admin é que precisa agir. A guarda
+  // vale para todas as etapas porque o `finish` também depende da configuração
+  // (o `doneStatus`).
   const config = await deps.getConfig(entry.project);
   if (!config) {
     throw new ClickUpError({
@@ -360,21 +410,12 @@ export async function runJob(
     });
   }
 
-  // RN-09: sem vínculo com um membro, a tarefa nasceria sem responsável e
-  // poluiria o board dos outros. Também terminal.
-  const assignee = entry.clickupUserId;
-  if (assignee === null) {
-    throw new ClickUpError({
-      code: "SEM_VINCULO",
-      message: "Usuário sem vínculo com um membro do ClickUp.",
-      retryable: false,
-    });
-  }
+  const ctx: RunContext = { stage: job.stage, taskId: job.clickupTaskId };
 
   try {
-    await runStages(job, entry, config, assignee, deps);
+    await runStages(job, entry, config, deps, ctx);
   } catch (err) {
-    await esquecerIndiceSeTarefaSumiu(err, job, entry, deps);
+    await recuperarTarefaSumiu(err, job, entry, ctx, deps);
     throw err;
   }
 }

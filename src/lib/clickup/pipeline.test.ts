@@ -392,9 +392,15 @@ describe("runJob — etapa resolve", () => {
         sprintListId: "s17",
       },
     });
+    // Sprint diferente do destino: o índice não basta, porque mover sem olhar o
+    // status atropelaria RN-03. Passa pela busca para classificar antes.
+    deps.client.findTasksInLists.mockResolvedValue([
+      makeTask({ id: "t1", listId: "s17", statusType: "custom", assigneeIds: [7] }),
+    ]);
 
     await runJob(makeJob(), deps);
 
+    expect(deps.client.findTasksInLists).toHaveBeenCalledTimes(1);
     expect(deps.client.moveTaskToList).toHaveBeenCalledTimes(1);
     expect(deps.client.moveTaskToList).toHaveBeenCalledWith("t1", "s18");
     expect(deps.client.createTask).not.toHaveBeenCalled();
@@ -406,6 +412,45 @@ describe("runJob — etapa resolve", () => {
       clickupTaskUrl: "https://app.clickup.com/t/t1",
       sprintListId: "s18",
     });
+  });
+
+  it("não arrasta para a sprint nova a tarefa concluída do índice — RN-03", async () => {
+    // O vínculo aponta para a sprint anterior. Mover pelo índice, sem ler o
+    // status, arrastaria uma tarefa fechada para a sprint atual e comentaria
+    // nela — exatamente o que RN-03 proíbe, no cenário para o qual foi escrita.
+    const deps = makeDeps({
+      link: {
+        clickupTaskId: "t1",
+        clickupTaskUrl: "https://app.clickup.com/t/t1",
+        sprintListId: "s17",
+      },
+    });
+    deps.client.findTasksInLists.mockResolvedValue([
+      makeTask({
+        id: "t1",
+        listId: "s17",
+        statusName: "concluído",
+        statusType: "closed",
+      }),
+    ]);
+    deps.client.createTask.mockResolvedValue(
+      makeTask({ id: "t2", url: "https://app.clickup.com/t/t2" }),
+    );
+
+    await runJob(makeJob(), deps);
+
+    expect(deps.client.moveTaskToList).not.toHaveBeenCalled();
+    expect(deps.client.updateTask).not.toHaveBeenCalled();
+    expect(deps.client.createTask).toHaveBeenCalledTimes(1);
+    expect(deps.client.createTask.mock.calls[0][0]).toBe(SPRINT_DESTINO);
+    expect(deps.upsertLink).toHaveBeenCalledWith({
+      project: "labphase",
+      normalizedTitle: "criar acessos",
+      clickupTaskId: "t2",
+      clickupTaskUrl: "https://app.clickup.com/t/t2",
+      sprintListId: SPRINT_DESTINO,
+    });
+    expect(deps.client.createComment.mock.calls[0][0]).toBe("t2");
   });
 
   it("cria tarefa nova quando a anterior está concluída — CA-06, RN-03", async () => {
@@ -598,6 +643,51 @@ describe("runJob — idempotência (RN-13, CA-12)", () => {
     expect(deps.saveProgress).not.toHaveBeenCalled();
   });
 
+  it("job em 'done' não falha por configuração desligada depois", async () => {
+    // O job terminou tudo no ClickUp e caiu antes do `completeJob`. Se a
+    // integração do projeto foi desligada nesse meio tempo, marcá-lo como
+    // falha terminal seria mentira — e o ponto nunca chegaria a `synced`.
+    const deps = makeDeps({ config: null });
+
+    await expect(
+      runJob(makeJob({ stage: "done", clickupTaskId: "t1" }), deps),
+    ).resolves.toBeUndefined();
+
+    expect(deps.getConfig).not.toHaveBeenCalled();
+    expect(deps.saveProgress).not.toHaveBeenCalled();
+  });
+
+  it("job em 'done' não falha por vínculo removido depois", async () => {
+    const deps = makeDeps({ entry: makeEntry({ clickupUserId: null }) });
+
+    await expect(
+      runJob(makeJob({ stage: "done", clickupTaskId: "t1" }), deps),
+    ).resolves.toBeUndefined();
+
+    expect(deps.saveProgress).not.toHaveBeenCalled();
+  });
+
+  it("etapa final não exige vínculo — só o `resolve` usa o responsável", async () => {
+    // `SEM_VINCULO` é guarda do `resolve`, onde o assignee é consumido. Um job
+    // retomado em `finish` já criou tudo; barrá-lo aqui não protege board nenhum.
+    const deps = makeDeps({ entry: makeEntry({ clickupUserId: null }) });
+
+    await runJob(
+      makeJob({
+        stage: "finish",
+        clickupTaskId: "t1",
+        clickupCommentId: "c1",
+        moveToReview: true,
+      }),
+      deps,
+    );
+
+    expect(deps.client.updateTask).toHaveBeenCalledWith("t1", {
+      status: "homologando",
+    });
+    expect(deps.saveProgress).toHaveBeenCalledWith("j1", { stage: "done" });
+  });
+
   it("grava o progresso de cada etapa antes de começar a seguinte", async () => {
     // É esta ordem — chamada ao ClickUp, depois `saveProgress`, depois a próxima
     // etapa — que impede o retry de duplicar qualquer coisa (RN-13).
@@ -668,6 +758,71 @@ describe("runJob — idempotência (RN-13, CA-12)", () => {
 
     expect(deps.deleteLink).toHaveBeenCalledWith("labphase", "criar acessos");
     // Volta ao início para recriar a tarefa na próxima tentativa.
+    expect(deps.saveProgress).toHaveBeenCalledWith("j1", { stage: "resolve" });
+  });
+
+  it("não rebobina o job quando a tarefa some depois do comentário", async () => {
+    // Em `time_entry` o comentário já foi criado. Voltar para `resolve` faria o
+    // retry recriar tarefa, recomentar e relançar tempo — duplicando as horas
+    // da pessoa por causa de um 404 que pode até ser transitório.
+    const deps = makeDeps({
+      token: "pk_x",
+      link: {
+        clickupTaskId: "t1",
+        clickupTaskUrl: "https://app.clickup.com/t/t1",
+        sprintListId: SPRINT_DESTINO,
+      },
+    });
+    deps.client.createTimeEntry.mockRejectedValue(
+      new ClickUpError({
+        code: "TAREFA_SUMIU",
+        message: "Recurso não encontrado no ClickUp.",
+        status: 404,
+        retryable: true,
+      }),
+    );
+
+    await expect(
+      runJob(
+        makeJob({
+          stage: "time_entry",
+          clickupTaskId: "t1",
+          clickupCommentId: "c1",
+        }),
+        deps,
+      ),
+    ).rejects.toMatchObject({ code: "TAREFA_SUMIU" });
+
+    // O índice é limpo (a tarefa realmente sumiu), mas o stage fica onde está.
+    expect(deps.deleteLink).toHaveBeenCalledWith("labphase", "criar acessos");
+    expect(deps.saveProgress).not.toHaveBeenCalled();
+  });
+
+  it("não apaga o vínculo que já aponta para outra tarefa", async () => {
+    // O índice avançou (RN-03 criou uma tarefa nova) enquanto este job ainda
+    // carregava a antiga: apagar aqui destruiria um vínculo válido.
+    const deps = makeDeps({
+      link: {
+        clickupTaskId: "t2",
+        clickupTaskUrl: "https://app.clickup.com/t/t2",
+        sprintListId: SPRINT_DESTINO,
+      },
+    });
+    deps.client.createComment.mockRejectedValue(
+      new ClickUpError({
+        code: "TAREFA_SUMIU",
+        message: "Recurso não encontrado no ClickUp.",
+        status: 404,
+        retryable: true,
+      }),
+    );
+
+    await expect(
+      runJob(makeJob({ stage: "comment", clickupTaskId: "t1" }), deps),
+    ).rejects.toMatchObject({ code: "TAREFA_SUMIU" });
+
+    expect(deps.deleteLink).not.toHaveBeenCalled();
+    // Rebobinar continua certo: a retomada resolve pelo índice e cai na t2.
     expect(deps.saveProgress).toHaveBeenCalledWith("j1", { stage: "resolve" });
   });
 
