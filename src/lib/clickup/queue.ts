@@ -53,6 +53,22 @@ export async function enqueuePushEntry(
  * Reivindica jobs prontos. `FOR UPDATE SKIP LOCKED` é o que permite mais de um
  * worker sem processar o mesmo job duas vezes — e o que impede um worker travado
  * de bloquear a fila inteira atrás dele.
+ *
+ * Também **retoma job preso em `running`** há mais de 15 minutos. Um worker
+ * morto sem chance de encerrar (SIGKILL depois da carência do Docker, OOM,
+ * reinício da máquina) deixa o job marcado `running` para sempre: ninguém mais
+ * o reivindica (`pending`), o contador do admin não o enxerga (`failed`) e o
+ * "reenviar" da pessoa não o encontra — o ponto fica "sincronizando" eterno e
+ * só SQL na mão resolve. Isso contraria spec §8 ("o envio precisa sobreviver a
+ * reinício da aplicação").
+ *
+ * Retomar é seguro **por construção**: o job guarda a etapa alcançada (`stage`)
+ * e os ids já criados no ClickUp, então ele recomeça de onde parou, nunca do
+ * início (RN-13). O `updated_at` usado como relógio é gravado por esta própria
+ * função a cada reivindicação — não precisa de coluna nova.
+ *
+ * 15 minutos é folga larga sobre o job mais caro (7 requisições no teto de
+ * 90/min) e sobre a carência de parada do container (`stop_grace_period`).
  */
 export async function claimJobs(limit: number): Promise<ClickUpSyncJob[]> {
   const db = await getDb();
@@ -61,7 +77,11 @@ export async function claimJobs(limit: number): Promise<ClickUpSyncJob[]> {
        set status = 'running', updated_at = now()
      where id in (
        select id from clickup_sync_jobs
-        where status = 'pending' and next_run_at <= now()
+        where (
+                status = 'pending'
+                or (status = 'running' and updated_at < now() - interval '15 minutes')
+              )
+          and next_run_at <= now()
         order by next_run_at
         for update skip locked
         limit ${limit}

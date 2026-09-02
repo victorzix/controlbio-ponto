@@ -96,6 +96,13 @@ services:
       target: tools
     container_name: controlbio-ponto-worker
     restart: unless-stopped
+    # A carência padrão do Docker é 10s — curta demais: o worker só encerra na
+    # FRONTEIRA entre jobs (nunca no meio de um, para não duplicar comentário ou
+    # lançamento de tempo no retry — RN-13), e um job custa de 3 a 7 requisições
+    # no teto de 90/min. Com 10s, o `docker compose down`/`restart` viraria
+    # SIGKILL no meio do job, deixando-o preso em `running` (recuperado só
+    # depois pela retomada de claim preso em `claimJobs`).
+    stop_grace_period: 60s
     depends_on:
       db:
         condition: service_healthy

@@ -73,9 +73,18 @@ transação em que salva o ponto; quem processa é este serviço, sozinho e à p
   subi-lo, então num ambiente sem token ele fica reiniciando e repetindo essa linha
   periodicamente; é inofensivo, mas se incomodar nos logs, pare-o com
   `docker compose stop worker`.
-- Encerra de forma graciosa em `SIGTERM`/`SIGINT`: termina o lote de jobs em andamento
-  antes de sair, nunca no meio de uma etapa — é o que evita duplicar comentário ou
-  lançamento de tempo num retry após um `docker compose down`/`restart worker`.
+- Encerra de forma graciosa em `SIGTERM`/`SIGINT`: termina o **job em andamento** e para
+  na fronteira do próximo, nunca no meio de uma etapa — é o que evita duplicar comentário
+  ou lançamento de tempo num retry após um `docker compose down`/`restart worker`.
+  Por isso o serviço declara `stop_grace_period: 60s`: a carência padrão do Docker (10s)
+  é menor que o job mais caro (3 a 7 requisições no teto de 90/min) e viraria `SIGKILL`
+  no meio do trabalho.
+- **A garantia acima vale para uma parada com sinal.** Numa morte sem chance de encerrar
+  (SIGKILL depois da carência, OOM, queda da máquina) o job fica marcado `running` no
+  banco. Isso não o perde: `claimJobs` **retoma** job preso em `running` há mais de
+  15 minutos, e ele recomeça da etapa gravada (`stage`), não do início — nada é
+  duplicado. Na prática, um ponto pode ficar até ~15 minutos em "sincronizando" depois
+  de uma queda dura antes de a fila voltar a andar sozinha.
 
 ### Variáveis de ambiente
 

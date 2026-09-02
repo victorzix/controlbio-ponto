@@ -196,23 +196,38 @@ async function main(): Promise<void> {
     }
 
     for (const job of jobs) {
+      // Encerramento gracioso, na FRONTEIRA entre jobs: o topo do `for` é tão
+      // seguro quanto a verificação entre lotes — nenhum job está no meio de
+      // uma etapa aqui. O que não se pode fazer é interromper DENTRO de um job,
+      // entre uma escrita no ClickUp e o `saveProgress` correspondente: essa é
+      // a janela que causa duplicata no retry (RN-13) — por isso o `break` está
+      // aqui e não espalhado dentro do `try`.
+      //
+      // Sem isto, um lote de 10 jobs (3 a 7 requisições cada, no teto de
+      // 90/min) pode levar ~27s e estourar a carência de parada do container,
+      // levando um SIGKILL que deixa o job preso em `running`
+      // (ver `stop_grace_period` no docker-compose.yml e a retomada de claim
+      // preso em `claimJobs`).
+      if (parando) break;
+
+      // Etapa REALMENTE alcançada — `job.stage` é a foto da reivindicação e
+      // subnotificaria o progresso no log de falha.
+      let etapaAlcancada = job.stage;
       try {
-        await runJob(job, deps);
+        await runJob(job, deps, (stage) => {
+          etapaAlcancada = stage;
+        });
         await completeJob(job.id, job.entryId);
       } catch (err) {
         // Nunca derruba o laço: um job ruim não pode parar a fila. `failJob`
         // por si só também nunca lança (ver `queue.ts`).
         const clickUpErr = toClickUpError(err);
         console.error(
-          `[clickup-worker] job ${job.id} falhou na etapa "${job.stage}" (codigo ${clickUpErr.code}).`,
+          `[clickup-worker] job ${job.id} falhou na etapa "${etapaAlcancada}" (codigo ${clickUpErr.code}).`,
         );
         await failJob(job.id, clickUpErr, MAX_ATTEMPTS);
       }
     }
-    // Encerramento gracioso: só verifica `parando` entre lotes, nunca no meio
-    // de um `for` — um job interrompido entre uma escrita no ClickUp e o
-    // `saveProgress` correspondente é exatamente a janela que causa duplicata
-    // no retry (RN-13).
   }
 
   console.log("[clickup-worker] encerrado.");

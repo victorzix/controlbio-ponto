@@ -228,8 +228,22 @@ async function resolveTask(
  * decidir com precisão: rebobinar só é seguro em etapa que ainda não escreveu
  * nada irreversível, e o vínculo só pode ser apagado se apontar para a tarefa
  * que de fato sumiu.
+ *
+ * `onStage` leva a etapa ALCANÇADA para fora do pipeline: o chamador só tem a
+ * foto do job no momento da reivindicação, então logar `job.stage` numa falha
+ * subnotifica o progresso (diz "resolve" para um job que morreu em "finish").
  */
-type RunContext = { stage: JobStage; taskId: string | null };
+type RunContext = {
+  stage: JobStage;
+  taskId: string | null;
+  onStage?: (stage: JobStage) => void;
+};
+
+/** Avança a etapa corrente do contexto e avisa quem estiver observando. */
+function marcarEtapa(ctx: RunContext, stage: JobStage): void {
+  ctx.stage = stage;
+  ctx.onStage?.(stage);
+}
 
 /**
  * A tarefa tem que existir a partir da etapa `comment`: o mesmo `saveProgress`
@@ -285,7 +299,7 @@ async function runStages(
     );
     await deps.saveProgress(job.id, { stage: "comment", clickupTaskId: taskId });
     stage = "comment";
-    ctx.stage = stage;
+    marcarEtapa(ctx, stage);
   }
 
   const tarefa = requireTaskId(taskId, stage);
@@ -300,7 +314,7 @@ async function runStages(
       clickupCommentId: commentId,
     });
     stage = "time_entry";
-    ctx.stage = stage;
+    marcarEtapa(ctx, stage);
   }
 
   if (stage === "time_entry") {
@@ -331,7 +345,7 @@ async function runStages(
       await deps.saveProgress(job.id, { stage: "finish" });
     }
     stage = "finish";
-    ctx.stage = stage;
+    marcarEtapa(ctx, stage);
   }
 
   if (stage === "finish") {
@@ -389,10 +403,15 @@ async function recuperarTarefaSumiu(
  *
  * Exceções sobem para o chamador (o worker), que decide entre reagendar com
  * backoff e marcar `failed` (`planRetry`, `queue.ts`).
+ *
+ * `onStage` é opcional e serve só para o chamador saber em que etapa o job de
+ * fato chegou — é o que permite ao worker logar a etapa REAL da falha em vez da
+ * etapa que constava na reivindicação.
  */
 export async function runJob(
   job: ClickUpSyncJob,
   deps: PipelineDeps,
+  onStage?: (stage: JobStage) => void,
 ): Promise<void> {
   const entry = await deps.loadEntry(job.entryId);
   // Ponto excluído no meio do caminho (RN-07): nada a fazer, e nada a desfazer
@@ -419,7 +438,7 @@ export async function runJob(
     });
   }
 
-  const ctx: RunContext = { stage: job.stage, taskId: job.clickupTaskId };
+  const ctx: RunContext = { stage: job.stage, taskId: job.clickupTaskId, onStage };
 
   try {
     await runStages(job, entry, config, deps, ctx);
