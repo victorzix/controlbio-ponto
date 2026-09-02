@@ -146,4 +146,27 @@ describe("ClickUpClient", () => {
     ]);
     await expect(c.getCurrentUser()).rejects.toMatchObject({ code: "RATE_LIMIT", retryable: true });
   });
+
+  it("desiste depois do teto de páginas em vez de paginar para sempre", async () => {
+    // Página sempre cheia: sem teto, o `for(;;)` de `findTasksInLists` gira
+    // indefinidamente queimando o orçamento de requisições compartilhado com a
+    // tela do admin. É o único laço sem limite da integração.
+    const cheia = {
+      tasks: Array.from({ length: 100 }, (_, i) => ({
+        id: `t${i}`,
+        name: `Tarefa ${i}`,
+        url: `https://app.clickup.com/t/t${i}`,
+        status: { status: "fazendo", type: "custom" },
+        list: { id: "l1" },
+        assignees: [],
+      })),
+    };
+    const { c, calls } = client([{ match: "/task?", body: cheia }]);
+
+    await expect(c.findTasksInLists(["l1"])).rejects.toMatchObject({
+      code: "DESCONHECIDO",
+      retryable: false,
+    });
+    expect(calls).toHaveLength(20);
+  });
 });

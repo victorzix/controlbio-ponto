@@ -194,14 +194,24 @@ resolve ──► comment ──► time_entry ──► finish ──► done
 3. Resolve a Lista de destino (§3.1).
 4. Busca a tarefa, em cascata:
    - **índice local** (`clickup_task_links` por projeto + título normalizado);
-   - senão **busca no ClickUp** dentro do folder, casando título normalizado
-     (`GET /v2/team/{team}/task?list_ids[]=...&include_closed=true`);
+   - senão **busca no ClickUp** casando título normalizado
+     (`GET /v2/team/{team}/task?list_ids[]=...&include_closed=true`), **só nas Listas
+     que importam**: destino + sprint imediatamente anterior ao destino + Lista onde o
+     índice diz que a tarefa está + backlog. Nunca o Folder inteiro: a busca pagina
+     todas as tarefas de todas as Listas pedidas, roda a cada miss do índice e divide
+     o teto de ~90 req/min com a tela do admin — varrer o Folder é a única operação
+     sem limite superior da integração;
    - senão **cria** (`POST /v2/list/{list}/task`) já com `status = inProgressStatus`,
      `assignees: [clickupUserId]` e `markdown_description` com a descrição do ponto.
 5. Tarefa encontrada:
    - status **concluído** → ignora e **cria nova** na Lista de destino (RN-03);
    - em Lista **diferente** da de destino → **move** (carry over, RF-17)
-     via `PUT /v3/workspaces/{team}/tasks/{id}/home_list/{list}`;
+     via `PUT /v3/workspaces/{team}/tasks/{id}/home_list/{list}` — **só para a
+     frente**. Carry over é a atividade *continuando*; num ponto atrasado o destino é
+     uma sprint passada e mover ali tiraria a tarefa viva do board corrente (e o
+     próximo ponto de hoje a puxaria de volta, fazendo o card pingar entre sprints).
+     Quando a janela do destino **termina antes** da janela da Lista atual da tarefa,
+     o ponto comenta onde a tarefa já vive e o índice registra essa Lista;
    - status **parado** → `PUT /v2/task/{id}` com o status de andamento (RN-02);
    - usuário **não é assignee** → `PUT /v2/task/{id}` com `assignees: { add: [id] }`.
 6. Grava `clickup_task_id` no job (progresso), **no registro de ponto** (via

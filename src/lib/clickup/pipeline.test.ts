@@ -416,6 +416,79 @@ describe("runJob — etapa resolve", () => {
     });
   });
 
+  it("busca só nas Listas que importam, não no Folder inteiro", async () => {
+    // Folder realista de fim de ano: a varredura completa pagina TODAS as
+    // tarefas de TODAS estas Listas a cada miss do índice, no mesmo orçamento de
+    // 90 req/min da tela do admin. O alcance necessário é destino + sprint
+    // anterior + Lista do vínculo + backlog.
+    const muitasListas: ClickUpList[] = [
+      { id: "s14", name: "Sprint 14 (1/4/26 - 15/4/26)", startDate: null, dueDate: null },
+      { id: "s15", name: "Sprint 15 (16/4/26 - 30/4/26)", startDate: null, dueDate: null },
+      { id: "s16", name: "Sprint 16 (1/5/26 - 15/5/26)", startDate: null, dueDate: null },
+      ...LISTAS,
+      { id: "s19", name: "Sprint 19 (1/7/26 - 15/7/26)", startDate: null, dueDate: null },
+    ];
+    const deps = makeDeps();
+    deps.client.getLists.mockResolvedValue(muitasListas);
+
+    await runJob(makeJob(), deps);
+
+    // Destino s18, anterior s17, backlog bk — s14/s15/s16/s19 ficam de fora.
+    expect(deps.client.findTasksInLists).toHaveBeenCalledWith(["s17", "s18", "bk"]);
+  });
+
+  it("inclui a Lista do vínculo na busca (ponto atrasado acha a tarefa)", async () => {
+    const deps = makeDeps({
+      entry: makeEntry({ workDate: "2026-06-10" }),
+      link: {
+        clickupTaskId: "t1",
+        clickupTaskUrl: "https://app.clickup.com/t/t1",
+        sprintListId: "s18",
+      },
+    });
+
+    await runJob(makeJob(), deps);
+
+    // Destino s17 (dia atrasado) + backlog + a sprint onde o índice diz que a
+    // tarefa vive. Sem s18 aqui, a busca não a acharia e criaria uma duplicata.
+    expect(deps.client.findTasksInLists).toHaveBeenCalledWith(["s17", "s18", "bk"]);
+  });
+
+  it("NÃO puxa a tarefa para uma sprint passada num ponto atrasado — RF-17", async () => {
+    // Ponto lançado com atraso: o dia trabalhado cai na Sprint 17, mas a
+    // atividade continua viva na Sprint 18 (a atual). Mover a tarefa para o
+    // destino a tiraria do board corrente e a jogaria numa sprint encerrada —
+    // e o próximo ponto de hoje a puxaria de volta, fazendo o card pingar entre
+    // sprints. Carry over é a atividade CONTINUANDO: só vale para a frente.
+    const deps = makeDeps({
+      entry: makeEntry({ workDate: "2026-06-10" }),
+      link: {
+        clickupTaskId: "t1",
+        clickupTaskUrl: "https://app.clickup.com/t/t1",
+        sprintListId: "s18",
+      },
+    });
+    deps.client.findTasksInLists.mockResolvedValue([
+      makeTask({ id: "t1", listId: "s18", statusType: "custom", assigneeIds: [7] }),
+    ]);
+
+    await runJob(makeJob(), deps);
+
+    expect(deps.client.moveTaskToList).not.toHaveBeenCalled();
+    expect(deps.client.createTask).not.toHaveBeenCalled();
+    // O comentário entra na tarefa onde ela de fato vive.
+    expect(deps.client.createComment.mock.calls[0][0]).toBe("t1");
+    // E o índice continua apontando para a sprint em que a tarefa está — não
+    // para a sprint do ponto atrasado.
+    expect(deps.upsertLink).toHaveBeenCalledWith({
+      project: "labphase",
+      normalizedTitle: "criar acessos",
+      clickupTaskId: "t1",
+      clickupTaskUrl: "https://app.clickup.com/t/t1",
+      sprintListId: "s18",
+    });
+  });
+
   it("não arrasta para a sprint nova a tarefa concluída do índice — RN-03", async () => {
     // O vínculo aponta para a sprint anterior. Mover pelo índice, sem ler o
     // status, arrastaria uma tarefa fechada para a sprint atual e comentaria

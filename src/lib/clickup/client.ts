@@ -10,7 +10,7 @@
  * não redeclarar, são o mesmo tipo usado pelo resto do pipeline.
  */
 
-import { classifyHttp } from "./errors";
+import { ClickUpError, classifyHttp } from "./errors";
 import { createRateLimiter } from "./rate-limit";
 import type { ClickUpList } from "./sprint";
 import type { ClickUpStatus } from "./status";
@@ -67,6 +67,15 @@ export type TimeEntryInput = {
 const DEFAULT_BASE_URL = "https://api.clickup.com/api";
 /** ClickUp pagina em blocos de 100; menos que isso na página = acabou. */
 const PAGE_SIZE = 100;
+/**
+ * Teto de páginas de `findTasksInLists` — 2.000 tarefas, folgado para o alcance
+ * de busca do pipeline (poucas Listas). É uma trava de segurança, não um filtro:
+ * sem ela o laço de paginação é o único do código que não tem fim, e um Folder
+ * grande (ou um `list_ids[]` largo demais por engano) drenaria o orçamento de
+ * requisições que a fila divide com a tela do admin. Estourar é sintoma de
+ * configuração errada — falha terminal, para o admin ver, em vez de girar.
+ */
+const MAX_PAGES = 20;
 
 // Formatos crus da API — só os campos que este módulo de fato lê. Sem
 // validação de schema em runtime (fora do escopo desta tarefa): o cast em
@@ -241,6 +250,16 @@ export function createClickUpClient(opts: {
 
         if (pageTasks.length < PAGE_SIZE) break;
         page += 1;
+        if (page >= MAX_PAGES) {
+          throw new ClickUpError({
+            code: "DESCONHECIDO",
+            message:
+              `Busca de tarefas passou de ${MAX_PAGES} páginas em ` +
+              `${listIds.length} Lista(s) — verifique a configuração do projeto ` +
+              `(Folder/Listas) no ClickUp.`,
+            retryable: false,
+          });
+        }
       }
 
       return tasks;

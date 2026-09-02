@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { parseSprintWindow, pickSprintList, type ClickUpList } from "./sprint";
+import {
+  listWindow,
+  parseSprintWindow,
+  pickSprintList,
+  type ClickUpList,
+} from "./sprint";
 
 const BACKLOG = "backlog-1";
 
@@ -107,5 +112,34 @@ describe("pickSprintList", () => {
       .toEqual({ listId: "s17", source: "list_date" });
     expect(pickSprintList(lists, "2026-09-16", "dmy", BACKLOG))
       .toEqual({ listId: BACKLOG, source: "backlog" });
+  });
+});
+
+/**
+ * `listWindow` é o que permite ORDENAR sprints no tempo — comparar o destino
+ * com a Lista onde a tarefa vive (carry over só para a frente, RF-17) e achar a
+ * sprint imediatamente anterior ao destino (alcance da busca por título).
+ */
+describe("listWindow", () => {
+  it("prefere a data da própria Lista, no fuso de Brasília", () => {
+    const l = list(
+      "s17",
+      "Sprint 17 (1/1/26 - 15/1/26)", // nome mente de propósito
+      new Date("2026-09-01T03:00:00Z"),
+      new Date("2026-09-16T02:59:00Z"),
+    );
+    expect(listWindow(l, "dmy", "2026-09-02")).toEqual({
+      start: "2026-09-01",
+      end: "2026-09-15",
+    });
+  });
+
+  it("cai no nome quando a Lista não tem data", () => {
+    expect(listWindow(list("s18", "Sprint 18 (16/9/26 - 30/9/26)"), "dmy", "2026-09-20"))
+      .toEqual({ start: "2026-09-16", end: "2026-09-30" });
+  });
+
+  it("devolve null para Lista sem data e sem janela no nome (o backlog)", () => {
+    expect(listWindow(list(BACKLOG, "Backlog"), "dmy", "2026-09-02")).toBeNull();
   });
 });

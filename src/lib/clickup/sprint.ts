@@ -85,6 +85,30 @@ export function parseSprintWindow(
   return { start: toISO(sy, startMonth, startDay), end: toISO(ey, endMonth, endDay) };
 }
 
+/**
+ * Janela "YYYY-MM-DD" de uma Lista, na mesma ordem de confiança de
+ * `pickSprintList`: data da própria Lista primeiro, parse do nome como rede de
+ * segurança. `null` para Lista sem data nenhuma (o backlog é o caso normal).
+ *
+ * Existe para o pipeline poder **ordenar** sprints no tempo — comparar a sprint
+ * de destino com a sprint onde a tarefa vive hoje (carry over só para a frente,
+ * RF-17) e achar a sprint imediatamente anterior ao destino, que é o alcance
+ * real da busca por título.
+ */
+export function listWindow(
+  list: ClickUpList,
+  format: SprintDateFormat,
+  referenceISO: string,
+): { start: string; end: string } | null {
+  if (list.startDate && list.dueDate) {
+    return {
+      start: brasiliaDateISO(list.startDate),
+      end: brasiliaDateISO(list.dueDate),
+    };
+  }
+  return parseSprintWindow(list.name, format, referenceISO);
+}
+
 export function pickSprintList(
   lists: ClickUpList[],
   workDate: string,

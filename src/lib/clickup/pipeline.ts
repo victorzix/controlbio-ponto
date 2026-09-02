@@ -30,7 +30,12 @@ import type { ProjectConfig } from "./config";
 import { ClickUpError } from "./errors";
 import type { deleteTaskLink, findTaskLink, upsertTaskLink } from "./links";
 import type { JobStage } from "./queue";
-import { pickSprintList, type SprintPick } from "./sprint";
+import {
+  listWindow,
+  pickSprintList,
+  type ClickUpList,
+  type SprintPick,
+} from "./sprint";
 import { classifyStatus, shouldMoveToInProgress } from "./status";
 import { normalizeTitle } from "./title";
 
@@ -118,6 +123,68 @@ export function buildCommentBody(
   ];
 }
 
+/** Janela da Lista de id `listId` dentro de `lists` — `null` se não der para saber. */
+function janelaDaLista(
+  lists: ClickUpList[],
+  listId: string,
+  config: ProjectConfig,
+  referenceISO: string,
+): { start: string; end: string } | null {
+  const lista = lists.find((l) => l.id === listId);
+  if (!lista) return null;
+  return listWindow(lista, config.sprintDateFormat, referenceISO);
+}
+
+/**
+ * Em quais Listas procurar a tarefa por título — spec 011, RF-17.
+ *
+ * Passar o Folder inteiro custa uma varredura sem teto: `findTasksInLists`
+ * pagina **todas** as tarefas de **todas** as Listas (`include_closed`,
+ * `subtasks`) e isso acontece a cada miss do índice — no primeiro dia, para toda
+ * atividade, e de novo a cada virada de sprint — dentro do mesmo orçamento de
+ * 90 req/min da tela do admin. Fila lenta é justamente o que faz um lote
+ * estourar a carência de parada do worker.
+ *
+ * O alcance que a lógica de fato precisa é pequeno:
+ *
+ * - a Lista de **destino** (a tarefa pode ter nascido no planejamento da sprint);
+ * - a sprint **imediatamente anterior** ao destino (carry over para a frente);
+ * - a Lista onde o **índice** diz que a tarefa está, quando há vínculo — é o que
+ *   cobre o ponto atrasado, cujo destino é uma sprint passada enquanto a tarefa
+ *   vive na sprint atual;
+ * - o **backlog** (planejamento ainda não distribuído).
+ *
+ * A ordem é a do próprio Folder, para o conjunto ser estável.
+ */
+function listasDeBusca(
+  lists: ClickUpList[],
+  destinoId: string,
+  vinculoListId: string | null,
+  config: ProjectConfig,
+  referenceISO: string,
+): string[] {
+  const alvo = new Set<string>([destinoId, config.backlogListId]);
+  if (vinculoListId) alvo.add(vinculoListId);
+
+  const destino = janelaDaLista(lists, destinoId, config, referenceISO);
+  if (destino) {
+    let anterior: { id: string; end: string } | null = null;
+    for (const l of lists) {
+      if (l.id === destinoId || l.id === config.backlogListId) continue;
+      const w = listWindow(l, config.sprintDateFormat, referenceISO);
+      if (!w || w.end >= destino.start) continue;
+      if (!anterior || w.end > anterior.end) anterior = { id: l.id, end: w.end };
+    }
+    if (anterior) alvo.add(anterior.id);
+  }
+
+  const ids = lists.filter((l) => alvo.has(l.id)).map((l) => l.id);
+  // Ids que não estão entre as Listas do Folder (backlog fora dele, vínculo
+  // antigo) entram no fim — melhor procurar demais do que criar duplicata.
+  for (const id of alvo) if (!ids.includes(id)) ids.push(id);
+  return ids;
+}
+
 /**
  * Etapa `resolve`: devolve a tarefa que vai receber o ponto, criando, adotando
  * ou reaproveitando conforme o caso. Deixa o índice
@@ -159,9 +226,15 @@ async function resolveTask(
   }
 
   // 2. Busca no ClickUp — a tarefa pode ter nascido no planejamento da sprint,
-  // ou ser a do vínculo numa sprint anterior (carry over, RF-17).
-  const listIds = lists.map((l) => l.id);
-  if (!listIds.includes(config.backlogListId)) listIds.push(config.backlogListId);
+  // ou ser a do vínculo numa sprint anterior (carry over, RF-17). Só nas Listas
+  // que importam (ver `listasDeBusca`), nunca no Folder inteiro.
+  const listIds = listasDeBusca(
+    lists,
+    destino,
+    link?.sprintListId ?? null,
+    config,
+    entry.workDate,
+  );
   const encontradas = await deps.client.findTasksInLists(listIds);
 
   // RN-03: tarefa concluída encerra a identidade — não é reaproveitada nem
@@ -174,11 +247,30 @@ async function resolveTask(
 
   if (existente) {
     ctx.taskId = existente.id;
-    if (existente.listId !== destino) {
-      // Carry over (RF-17): a atividade continua e a tarefa — que acabamos de
-      // confirmar que NÃO está concluída — acompanha a sprint.
+
+    // Carry over (RF-17) é a atividade CONTINUANDO — sempre para a frente. Um
+    // ponto atrasado tem como destino uma sprint passada enquanto a tarefa vive
+    // na sprint atual: mover ali a tiraria do board corrente e a esconderia numa
+    // sprint encerrada, e o próximo ponto de hoje a puxaria de volta — o card
+    // pingando entre sprints para a equipe inteira. Nesse caso comentamos na
+    // tarefa onde ela já está, que é o desfecho certo para um ponto atrasado.
+    // Sem janela conhecida dos dois lados (ex.: veio do backlog), a direção não
+    // é aferível e mantemos o comportamento de acompanhar a sprint.
+    const janelaDestino = janelaDaLista(lists, destino, config, entry.workDate);
+    const janelaAtual = janelaDaLista(lists, existente.listId, config, entry.workDate);
+    const paraTras =
+      janelaDestino !== null &&
+      janelaAtual !== null &&
+      janelaDestino.end < janelaAtual.end;
+
+    const mover = existente.listId !== destino && !paraTras;
+    if (mover) {
       await deps.client.moveTaskToList(existente.id, destino);
     }
+    // Onde a tarefa fica de fato ao final desta etapa — é isso que o índice
+    // precisa registrar, senão ele mente sobre a sprint da tarefa e obriga uma
+    // busca extra no próximo ponto.
+    const listaDaTarefa = mover ? destino : existente.listId;
 
     const patch: UpdateTaskInput = {};
     // RN-02: só quem está parado vai para andamento. Nunca regredimos.
@@ -197,7 +289,7 @@ async function resolveTask(
       normalizedTitle: tituloNormalizado,
       clickupTaskId: existente.id,
       clickupTaskUrl: existente.url,
-      sprintListId: destino,
+      sprintListId: listaDaTarefa,
     });
     return { id: existente.id, url: existente.url, source: pick.source };
   }
