@@ -12,6 +12,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "node --env-file=.env --import tsx src/db/seed.ts",
+    "worker:clickup": "node --env-file-if-exists=.env --import tsx src/worker/clickup-sync.ts",
     "test": "vitest run"
   },
   "dependencies": {

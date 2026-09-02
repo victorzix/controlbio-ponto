@@ -76,8 +76,41 @@ services:
       # senão o login não funciona. ⚠️ Sem HTTPS, senha/sessão trafegam em texto
       # puro — coloque um proxy TLS (Caddy/nginx) na frente assim que possível.
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      # Integração ClickUp (spec 011) — a app não fala com a API do ClickUp,
+      # mas as telas de configuração (admin) leem/gravam estas variáveis e o
+      # token pessoal cifrado dos usuários.
+      CLICKUP_API_TOKEN: ${CLICKUP_API_TOKEN:-}
+      CLICKUP_TEAM_ID: ${CLICKUP_TEAM_ID:-}
+      CLICKUP_TOKEN_ENC_KEY: ${CLICKUP_TOKEN_ENC_KEY:-}
+      CLICKUP_RATE_LIMIT_PER_MIN: ${CLICKUP_RATE_LIMIT_PER_MIN:-90}
     ports:
       - "${APP_PORT:-3000}:3000"
+
+  # Worker da integração com o ClickUp (spec 011). Consome `clickup_sync_jobs`.
+  # Usa o estágio `tools` porque precisa de tsx + código-fonte (o `runner` só tem
+  # o build standalone da app). Sem CLICKUP_API_TOKEN ele encerra sozinho.
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: tools
+    container_name: controlbio-ponto-worker
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    command: ["npm", "run", "worker:clickup"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-controlbio}:${POSTGRES_PASSWORD:-controlbio}@db:5432/${POSTGRES_DB:-controlbio_ponto}
+      CLICKUP_API_TOKEN: ${CLICKUP_API_TOKEN:-}
+      CLICKUP_TEAM_ID: ${CLICKUP_TEAM_ID:-}
+      CLICKUP_TOKEN_ENC_KEY: ${CLICKUP_TOKEN_ENC_KEY:-}
+      CLICKUP_RATE_LIMIT_PER_MIN: ${CLICKUP_RATE_LIMIT_PER_MIN:-90}
+      CLICKUP_WORKER_POLL_MS: ${CLICKUP_WORKER_POLL_MS:-5000}
+      CLICKUP_MAX_ATTEMPTS: ${CLICKUP_MAX_ATTEMPTS:-5}
 
 volumes:
   postgres_data:
