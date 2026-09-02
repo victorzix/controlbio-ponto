@@ -58,9 +58,11 @@ function buildDefaults(tracking: ActiveTracking): FinalizeValues {
         description: "",
       };
     }),
-    // Sem UI para desmarcar ainda (fora do escopo desta task) — mantém o
-    // comportamento padrão do schema: finalizar sempre move para revisão.
-    moveToReview: true,
+    // Marcado por padrão só quando o projeto tem para onde mover (RF-09).
+    // Sem `doneStatus` configurado o interruptor nem aparece (ver abaixo) — e
+    // aqui o default já nasce `false`, então "escondido" e "enviado como
+    // falso" são a mesma coisa, sem lógica extra no submit.
+    moveToReview: tracking.canMoveToReview,
   };
 }
 
@@ -350,6 +352,22 @@ function FinalizeForm({
           );
         })}
       </div>
+
+      {tracking.canMoveToReview ? (
+        <div className="border-border flex flex-col gap-1 border-t pt-3">
+          <label className="flex min-h-[44px] cursor-pointer items-center gap-3">
+            <input
+              type="checkbox"
+              className="size-4 accent-primary"
+              {...register("moveToReview")}
+            />
+            <span className="text-sm font-medium">Mover a tarefa para revisão</span>
+          </label>
+          <p className="text-muted-foreground pl-7 text-xs">
+            Desmarque se você só está parando por hoje.
+          </p>
+        </div>
+      ) : null}
 
       <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
         <Button
