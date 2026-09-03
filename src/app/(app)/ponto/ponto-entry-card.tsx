@@ -45,6 +45,8 @@ export function PontoEntryCard({
         taskUrl={entry.clickupTaskUrl}
         sprintSource={entry.clickupSprintSource}
         lastError={entry.clickupLastError}
+        jobStage={entry.clickupJobStage}
+        moveToReview={entry.clickupJobMoveToReview}
       />
       <PontoEntryActions
         entry={entry}

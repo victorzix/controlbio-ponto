@@ -15,7 +15,7 @@ import {
   PROJECT_OPTIONS,
   type Project,
 } from "@/lib/ponto/validation";
-import type { ClickUpSyncStatus } from "@/lib/ponto/data";
+import type { ClickUpJobStage, ClickUpSyncStatus } from "@/lib/ponto/data";
 import { cn } from "@/lib/utils";
 import { notifyUnexpectedError } from "@/lib/forms/notify-error";
 import { MarkdownEditor } from "./markdown-editor";
@@ -48,6 +48,9 @@ export type PontoEntryFormData = {
   clickupSprintSource: string | null;
   /** Motivo da última falha de sincronização (CA-11). */
   clickupLastError: string | null;
+  /** Etapa do job mais recente — rótulo granular do badge enquanto `pending`. */
+  clickupJobStage: ClickUpJobStage | null;
+  clickupJobMoveToReview: boolean;
 };
 
 type PontoFormProps = {

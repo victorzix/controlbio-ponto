@@ -355,13 +355,33 @@ Badge de estado ao lado do badge de tempo, com transição via `motion`:
 
 | Estado    | Aparência                                              |
 | --------- | ------------------------------------------------------ |
-| `pending` | Ícone de relógio, `text-muted-foreground`              |
+| `pending` | Ícone de relógio, `text-muted-foreground`, rótulo por **etapa do job** (abaixo) + botão "atualizar" |
 | `synced`  | Link externo para a tarefa (o badge inteiro é o alvo)  |
 | `synced`, origem `backlog` | Variante `warning` (`docs/design-system.md` v1.12) — "sincronizado, sem sprint": o ponto chegou lá, mas caiu no backlog em vez de uma sprint (**RF-07**, **CA-21**) |
 | `failed`  | Badge `destructive` com o **motivo** da falha em `title`/`aria-label` (**CA-11**) + ação "reenviar" (**RF-14**), que dá `router.refresh()` no sucesso para o card sair de "falhou" na hora |
 | `off`     | Nada é exibido                                          |
 
 No mobile o rótulo colapsa e sobra só o ícone, preservando o alvo de 44 px.
+
+**Rótulo por etapa em `pending`** (curto no badge, frase completa em `title`/`aria-label`):
+
+| `clickup_sync_jobs.stage` | Curto | Completo |
+| --- | --- | --- |
+| `resolve` / sem job | "enviando" | "Enviando para o ClickUp..." |
+| `comment` | "enviado" | "Tarefa criada no ClickUp, registrando o comentário..." |
+| `time_entry` | "em progresso" | "Em progresso no ClickUp — lançando o tempo..." |
+| `finish`, sem `move_to_review` | "finalizando" | "Finalizando a sincronização com o ClickUp..." |
+| `finish`, com `move_to_review` | "para revisão" | "Movendo a tarefa para revisão no ClickUp..." (**RF-09**) |
+
+**Sem polling** (decisão explícita): o rótulo reflete a etapa de quando a página
+carregou/recarregou, não acompanha o job ao vivo — o job inteiro costuma levar poucos
+segundos, então a granularidade normalmente já foi e voltou entre um carregamento e
+outro. Por isso o badge `pending` ganha um botão "atualizar" (`RefreshCw`, mesmo estilo
+do botão "reenviar" de `failed`) que só chama `router.refresh()` — sem chamada de rede
+própria, sem novo estado de servidor. `clickup_job_stage`/`clickup_job_move_to_review`
+(`lib/ponto/data.ts`) são subconsultas ao job mais recente do registro, no mesmo molde
+de `clickup_last_error`; ficam baratas por causa da invariante "um job por registro"
+(P-03).
 
 ### 6.4.1 Aviso de privacidade (LGPD)
 

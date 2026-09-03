@@ -22,6 +22,47 @@ const clickupLastError = sql<string | null>`(
    limit 1
 )`.as("clickup_last_error");
 
+/** Espelha `clickupJobStage` do schema — só usado para o rótulo do badge enquanto `pending`. */
+export type ClickUpJobStage =
+  | "resolve"
+  | "comment"
+  | "time_entry"
+  | "finish"
+  | "done";
+
+/**
+ * Etapa do job de sincronização mais recente do registro — alimenta o rótulo
+ * granular do badge enquanto `clickup_sync_status = 'pending'` ("enviando",
+ * "em progresso", "para revisão"...). Nulo só em registro sem job nenhum
+ * (nasceu antes da spec 011, ou com a integração desligada).
+ *
+ * `order by updated_at desc limit 1` em vez de um `where entry_id = ...`
+ * simples: a invariante "um job por registro" (spec 011, P-03) garante no
+ * caso comum uma única linha, mas a subconsulta fica correta mesmo se algum
+ * registro antigo tiver mais de uma.
+ */
+const clickupJobStage = sql<ClickUpJobStage | null>`(
+  select j.stage
+    from clickup_sync_jobs j
+   where j.entry_id = ${registrosPonto.id}
+   order by j.updated_at desc
+   limit 1
+)`.as("clickup_job_stage");
+
+/**
+ * `move_to_review` do job mais recente — diferencia, na etapa `finish`, entre
+ * "finalizando" (sem pedido de revisão) e "movendo para revisão" (RF-09).
+ * `false` (não `null`) quando não há job: sem job não há nada em `finish`
+ * para rotular de qualquer forma.
+ */
+const clickupJobMoveToReview = sql<boolean>`coalesce((
+  select j.move_to_review
+    from clickup_sync_jobs j
+   where j.entry_id = ${registrosPonto.id}
+   order by j.updated_at desc
+   limit 1
+), false)`.as("clickup_job_move_to_review");
+
 /** Intervalo de datas (inclusivo), em "YYYY-MM-DD". */
 export type DateRange = { from: string; to: string };
 
@@ -48,6 +89,10 @@ export type PontoEntry = {
   clickupSprintSource: string | null;
   /** Motivo da última falha (CA-11). Nulo quando não há job `failed`. */
   clickupLastError: string | null;
+  /** Etapa do job mais recente — rótulo granular do badge enquanto `pending`. */
+  clickupJobStage: ClickUpJobStage | null;
+  /** RF-09: só some do "finish" a diferença entre finalizar e mover a revisão. */
+  clickupJobMoveToReview: boolean;
 };
 
 /**
@@ -82,6 +127,8 @@ export async function listOwnEntries(
       clickupSyncStatus: registrosPonto.clickupSyncStatus,
       clickupSprintSource: registrosPonto.clickupSprintSource,
       clickupLastError,
+      clickupJobStage,
+      clickupJobMoveToReview,
     })
     .from(registrosPonto)
     .where(where)
@@ -122,6 +169,8 @@ export async function listEntriesByUsers(
       clickupSyncStatus: registrosPonto.clickupSyncStatus,
       clickupSprintSource: registrosPonto.clickupSprintSource,
       clickupLastError,
+      clickupJobStage,
+      clickupJobMoveToReview,
       userId: registrosPonto.userId,
       userName: users.name,
       hourlyRateCents: users.hourlyRateCents,
