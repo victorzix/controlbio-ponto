@@ -31,6 +31,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -39,13 +46,16 @@ type Props = {
   initialConfig: ProjectConfig | null;
 };
 
-const SELECT_CLASS = cn(
-  "border-input bg-background text-foreground flex h-11 w-full rounded-md border px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none",
-  "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
-  "disabled:cursor-not-allowed disabled:opacity-50",
-  "aria-invalid:border-destructive",
-  "md:text-sm",
-);
+/**
+ * Sentinel do item "Nenhum" em `doneStatus` — Radix `Select` reserva
+ * `value=""` para "nada selecionado" e não aceita um item com esse valor.
+ * Só este campo precisa disso: os demais selects deste form usam `value=""`
+ * como estado de placeholder mesmo (sem item algum representando-o), porque
+ * neles "" nunca é uma escolha explícita da pessoa — é só "ainda não
+ * escolheu". Aqui "Nenhum" É uma escolha (RF-09: sem status de conclusão
+ * configurado, a tarefa nunca é movida ao encerrar o cronômetro).
+ */
+const NENHUM_STATUS = "__nenhum__";
 
 /** Garante que o valor salvo apareça na lista mesmo que ainda não tenha carregado. */
 function withCurrent(
@@ -221,31 +231,38 @@ export function ProjectConfigForm({ project, projectLabel, initialConfig }: Prop
               control={control}
               name="spaceId"
               render={({ field }) => (
-                <select
-                  id={`${project}-space`}
+                <Select
                   value={field.value}
-                  onChange={(e) => {
-                    field.onChange(e.target.value);
+                  onValueChange={(v) => {
+                    field.onChange(v);
                     // Muda o Space: tudo que dependia dele fica inválido.
                     setValue("folderId", "");
                     setValue("backlogListId", "");
                     setValue("inProgressStatus", "");
                     setValue("doneStatus", "");
                   }}
-                  onBlur={field.onBlur}
                   disabled={spacesQuery.isPending}
-                  aria-invalid={!!errors.spaceId || undefined}
-                  className={SELECT_CLASS}
                 >
-                  <option value="">
-                    {spacesQuery.isPending ? "Carregando..." : "Selecione..."}
-                  </option>
-                  {spaceOptions.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.name}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger
+                    id={`${project}-space`}
+                    onBlur={field.onBlur}
+                    className="h-11 w-full text-base md:text-sm"
+                    aria-invalid={!!errors.spaceId || undefined}
+                  >
+                    <SelectValue
+                      placeholder={
+                        spacesQuery.isPending ? "Carregando..." : "Selecione..."
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {spaceOptions.map((o) => (
+                      <SelectItem key={o.id} value={o.id}>
+                        {o.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
             />
             {errors.spaceId ? (
@@ -262,33 +279,40 @@ export function ProjectConfigForm({ project, projectLabel, initialConfig }: Prop
               control={control}
               name="folderId"
               render={({ field }) => (
-                <select
-                  id={`${project}-folder`}
+                <Select
                   value={field.value}
-                  onChange={(e) => {
-                    field.onChange(e.target.value);
+                  onValueChange={(v) => {
+                    field.onChange(v);
                     setValue("backlogListId", "");
                     setValue("inProgressStatus", "");
                     setValue("doneStatus", "");
                   }}
-                  onBlur={field.onBlur}
                   disabled={!spaceId || foldersQuery.isPending}
-                  aria-invalid={!!errors.folderId || undefined}
-                  className={SELECT_CLASS}
                 >
-                  <option value="">
-                    {!spaceId
-                      ? "Selecione um Space primeiro"
-                      : foldersQuery.isPending
-                        ? "Carregando..."
-                        : "Selecione..."}
-                  </option>
-                  {folderOptions.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.name}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger
+                    id={`${project}-folder`}
+                    onBlur={field.onBlur}
+                    className="h-11 w-full text-base md:text-sm"
+                    aria-invalid={!!errors.folderId || undefined}
+                  >
+                    <SelectValue
+                      placeholder={
+                        !spaceId
+                          ? "Selecione um Space primeiro"
+                          : foldersQuery.isPending
+                            ? "Carregando..."
+                            : "Selecione..."
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {folderOptions.map((o) => (
+                      <SelectItem key={o.id} value={o.id}>
+                        {o.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
             />
             {errors.folderId ? (
@@ -305,32 +329,39 @@ export function ProjectConfigForm({ project, projectLabel, initialConfig }: Prop
               control={control}
               name="backlogListId"
               render={({ field }) => (
-                <select
-                  id={`${project}-backlog`}
+                <Select
                   value={field.value}
-                  onChange={(e) => {
-                    field.onChange(e.target.value);
+                  onValueChange={(v) => {
+                    field.onChange(v);
                     setValue("inProgressStatus", "");
                     setValue("doneStatus", "");
                   }}
-                  onBlur={field.onBlur}
                   disabled={!folderId || listsQuery.isPending}
-                  aria-invalid={!!errors.backlogListId || undefined}
-                  className={SELECT_CLASS}
                 >
-                  <option value="">
-                    {!folderId
-                      ? "Selecione um Folder primeiro"
-                      : listsQuery.isPending
-                        ? "Carregando..."
-                        : "Selecione..."}
-                  </option>
-                  {listOptions.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.name}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger
+                    id={`${project}-backlog`}
+                    onBlur={field.onBlur}
+                    className="h-11 w-full text-base md:text-sm"
+                    aria-invalid={!!errors.backlogListId || undefined}
+                  >
+                    <SelectValue
+                      placeholder={
+                        !folderId
+                          ? "Selecione um Folder primeiro"
+                          : listsQuery.isPending
+                            ? "Carregando..."
+                            : "Selecione..."
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {listOptions.map((o) => (
+                      <SelectItem key={o.id} value={o.id}>
+                        {o.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
             />
             {errors.backlogListId ? (
@@ -358,28 +389,35 @@ export function ProjectConfigForm({ project, projectLabel, initialConfig }: Prop
               control={control}
               name="inProgressStatus"
               render={({ field }) => (
-                <select
-                  id={`${project}-in-progress`}
+                <Select
                   value={field.value}
-                  onChange={field.onChange}
-                  onBlur={field.onBlur}
+                  onValueChange={field.onChange}
                   disabled={!backlogListId || statusesQuery.isPending}
-                  aria-invalid={!!errors.inProgressStatus || undefined}
-                  className={SELECT_CLASS}
                 >
-                  <option value="">
-                    {!backlogListId
-                      ? "Selecione a Lista de backlog primeiro"
-                      : statusesQuery.isPending
-                        ? "Carregando..."
-                        : "Selecione..."}
-                  </option>
-                  {statusOptions.map((s) => (
-                    <option key={s.id} value={s.status}>
-                      {s.status}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger
+                    id={`${project}-in-progress`}
+                    onBlur={field.onBlur}
+                    className="h-11 w-full text-base md:text-sm"
+                    aria-invalid={!!errors.inProgressStatus || undefined}
+                  >
+                    <SelectValue
+                      placeholder={
+                        !backlogListId
+                          ? "Selecione a Lista de backlog primeiro"
+                          : statusesQuery.isPending
+                            ? "Carregando..."
+                            : "Selecione..."
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {statusOptions.map((s) => (
+                      <SelectItem key={s.id} value={s.status}>
+                        {s.status}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
             />
             {errors.inProgressStatus ? (
@@ -396,21 +434,29 @@ export function ProjectConfigForm({ project, projectLabel, initialConfig }: Prop
               control={control}
               name="doneStatus"
               render={({ field }) => (
-                <select
-                  id={`${project}-done`}
-                  value={field.value}
-                  onChange={field.onChange}
-                  onBlur={field.onBlur}
+                <Select
+                  value={field.value || NENHUM_STATUS}
+                  onValueChange={(v) =>
+                    field.onChange(v === NENHUM_STATUS ? "" : v)
+                  }
                   disabled={!backlogListId || statusesQuery.isPending}
-                  className={SELECT_CLASS}
                 >
-                  <option value="">Nenhum</option>
-                  {statusOptions.map((s) => (
-                    <option key={s.id} value={s.status}>
-                      {s.status}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger
+                    id={`${project}-done`}
+                    onBlur={field.onBlur}
+                    className="h-11 w-full text-base md:text-sm"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NENHUM_STATUS}>Nenhum</SelectItem>
+                    {statusOptions.map((s) => (
+                      <SelectItem key={s.id} value={s.status}>
+                        {s.status}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
             />
           </div>

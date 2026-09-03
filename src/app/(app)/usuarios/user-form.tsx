@@ -18,32 +18,40 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CurrencyInput } from "@/components/ui/currency-input";
-import { cn } from "@/lib/utils";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 // O client valida com o schema de edição (senha opcional). No modo criar, o
 // servidor revalida com `createUserSchema` (senha obrigatória) — fonte da verdade.
 //
-// `clickupUserId` tem transform (string do <select> → number|undefined), então
+// `clickupUserId` tem transform (string do select → number|undefined), então
 // o tipo de ENTRADA do schema (o que os campos do form guardam de fato) difere
 // do tipo de SAÍDA (o que chega pós-parse). `useForm` usa os três genéricos do
 // RHF para isso: campos/`Controller`s trabalham com `FormInput`, e `onValid`
 // recebe `FormValues` (já transformado pelo resolver).
+//
+// `clickupUserId` aceita `string | number` no schema — o `number` é só para o
+// SERVIDOR tolerar o valor já transformado que o client reenvia (ver o
+// comentário de `optionalClickupUserId` em `validation.ts`); aqui, no client,
+// o campo do RHF é sempre string (vem do `Select`), então os dois pontos que
+// leem `field.value` abaixo normalizam com `String(...)` para não propagar
+// esse `number` pelo form todo.
 type FormInput = z.input<typeof updateUserSchema>;
 type FormValues = z.infer<typeof updateUserSchema>;
 
-// Select nativo estilizado com tokens (design-system.md §6 — sem radix, o
-// registry trava neste ambiente; mesmo estilo de `project-config-form.tsx`).
-// `h-11` = alvo de toque ≥ 44px (CLAUDE.md §4). Reaproveitado pelos selects
-// de papel e de vínculo com o ClickUp.
-const SELECT_CLASS = cn(
-  "border-input bg-background text-foreground flex h-11 w-full rounded-md border px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none",
-  "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
-  "disabled:cursor-not-allowed disabled:opacity-50",
-  "aria-invalid:border-destructive",
-  "md:text-sm",
-);
+/**
+ * Sentinel do item "Sem vínculo" — Radix `Select` reserva `value=""` para
+ * "nada selecionado" e não aceita um item com esse valor. Nunca sai deste
+ * componente: convertido de/para `""` (o que o schema Zod espera) na borda.
+ */
+const NENHUM_VINCULO = "__nenhum__";
 
-/** Garante que o membro já vinculado apareça no `<select>` mesmo antes da lista carregar. */
+/** Garante que o membro já vinculado apareça na lista mesmo antes dela carregar. */
 function withCurrentMember(
   members: ClickUpMember[],
   currentId: string | undefined,
@@ -264,25 +272,31 @@ export function UserForm({
           control={control}
           name="role"
           render={({ field }) => (
-            <select
-              id="role"
+            <Select
               value={field.value}
-              onChange={field.onChange}
-              onBlur={field.onBlur}
+              onValueChange={field.onChange}
               disabled={isSelf}
-              aria-invalid={!!errors.role || undefined}
-              aria-describedby={
-                errors.role
-                  ? "role-error"
-                  : isSelf
-                    ? "role-self-note"
-                    : undefined
-              }
-              className={SELECT_CLASS}
             >
-              <option value="admin">Admin</option>
-              <option value="funcionario">Funcionário</option>
-            </select>
+              <SelectTrigger
+                id="role"
+                onBlur={field.onBlur}
+                className="h-11 w-full text-base md:text-sm"
+                aria-invalid={!!errors.role || undefined}
+                aria-describedby={
+                  errors.role
+                    ? "role-error"
+                    : isSelf
+                      ? "role-self-note"
+                      : undefined
+                }
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="admin">Admin</SelectItem>
+                <SelectItem value="funcionario">Funcionário</SelectItem>
+              </SelectContent>
+            </Select>
           )}
         />
         {isSelf ? (
@@ -327,36 +341,49 @@ export function UserForm({
           control={control}
           name="clickupUserId"
           render={({ field }) => {
-            const options = withCurrentMember(members, field.value);
+            // `field.value` é tipado `string | number` (ver o comentário de
+            // `FormInput`), mas na prática é sempre string aqui — o `Select`
+            // (e `withCurrentMember`) só lidam com string.
+            const value = field.value === undefined ? "" : String(field.value);
+            const options = withCurrentMember(members, value);
             const disabled =
               membersQuery.isPending ||
               !membersQuery.data?.configured ||
               (membersQuery.data.configured && !membersQuery.data.ok);
             return (
-              <select
-                id="clickupUserId"
-                value={field.value ?? ""}
-                onChange={(e) => {
+              <Select
+                // Radix não aceita item com value="" (é o valor reservado para
+                // "limpar seleção") — "Sem vínculo" usa o sentinel abaixo e
+                // volta a "" no `onValueChange`, que é o que o schema espera.
+                value={value || NENHUM_VINCULO}
+                onValueChange={(v) => {
                   setClickupEdited(true);
-                  field.onChange(e.target.value);
+                  field.onChange(v === NENHUM_VINCULO ? "" : v);
                 }}
-                onBlur={field.onBlur}
                 disabled={disabled}
-                aria-invalid={!!errors.clickupUserId || undefined}
-                aria-describedby={
-                  errors.clickupUserId
-                    ? "clickupUserId-error"
-                    : "clickupUserId-hint"
-                }
-                className={SELECT_CLASS}
               >
-                <option value="">Sem vínculo</option>
-                {options.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.username}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger
+                  id="clickupUserId"
+                  onBlur={field.onBlur}
+                  className="h-11 w-full text-base md:text-sm"
+                  aria-invalid={!!errors.clickupUserId || undefined}
+                  aria-describedby={
+                    errors.clickupUserId
+                      ? "clickupUserId-error"
+                      : "clickupUserId-hint"
+                  }
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NENHUM_VINCULO}>Sem vínculo</SelectItem>
+                  {options.map((m) => (
+                    <SelectItem key={m.id} value={String(m.id)}>
+                      {m.username}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             );
           }}
         />
