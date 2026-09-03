@@ -23,6 +23,7 @@ export type ClickUpClient = {
   getLists(folderId: string): Promise<ClickUpList[]>;
   getListStatuses(listId: string): Promise<ClickUpStatus[]>;
   findTasksInLists(listIds: string[]): Promise<ClickUpTask[]>;
+  getTask(taskId: string): Promise<ClickUpTask>;
   createTask(listId: string, input: CreateTaskInput): Promise<ClickUpTask>;
   updateTask(taskId: string, input: UpdateTaskInput): Promise<void>;
   moveTaskToList(taskId: string, listId: string): Promise<void>;
@@ -265,6 +266,18 @@ export function createClickUpClient(opts: {
       }
 
       return tasks;
+    },
+
+    /**
+     * Tarefa por id, sem busca — usada por `ensureTaskInProgress` (spec 011,
+     * gatilho "iniciar cronômetro") pra reler o status ATUAL antes de decidir
+     * se move para "em andamento": `resolveTask` (índice/busca) não relê a
+     * tarefa quando o índice já acerta de cara (custaria uma requisição em
+     * TODO ponto salvo), então quem precisa do status fresco pede aqui.
+     */
+    async getTask(taskId: string) {
+      const raw = (await request(`/v2/task/${taskId}`)) as RawTask;
+      return mapTask(raw);
     },
 
     async createTask(listId: string, input: CreateTaskInput) {

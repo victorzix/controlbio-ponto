@@ -128,6 +128,7 @@ justamente porque hoje a amarração com a tarefa do ClickUp é manual.
 | RF-18 | Cada pessoa deve poder **conectar a própria conta** do ClickUp para que o tempo seja lançado em seu nome.                                   | Should     |
 | RF-19 | O admin deve poder **testar** a configuração de um projeto e ver em qual sprint um ponto de hoje cairia.                                    | Should     |
 | RF-20 | O admin deve poder **desativar** a integração de um projeto sem perder a configuração.                                                      | Could      |
+| RF-21 | Ao **iniciar** o cronômetro, o sistema deve marcar a tarefa como **em andamento** no ClickUp de imediato, sem esperar o encerrar.            | Should     |
 
 ## 7. Regras de Negócio
 
@@ -144,8 +145,15 @@ justamente porque hoje a amarração com a tarefa do ClickUp é manual.
   **não é tocada**.
 - **RN-03 (tarefa encerrada não volta):** tarefa em status **concluído/cancelado** não é
   reaproveitada nem movida — nesse caso o ponto **cria uma tarefa nova** na sprint atual.
-- **RN-04 (pausa não é fim):** **pausar** o cronômetro não altera status de tarefa.
-  Somente **encerrar** pode levar a tarefa ao status de conclusão.
+- **RN-04 (pausa não é fim):** **pausar** e **retomar** o cronômetro não alteram status
+  de tarefa. Somente **encerrar** pode levar a tarefa ao status de conclusão — e somente
+  **iniciar** (sessão nova, RF-21) pode levá-la a andamento; nada acontece nos pontos
+  intermediários (pausar/retomar), evitando uma chamada ao ClickUp a cada clique.
+- **RN-04.1 (iniciar não espera nem falha, RF-21):** a marcação de "em andamento" ao
+  iniciar o cronômetro é **melhor esforço** — roda em segundo plano, nunca atrasa nem
+  impede o cronômetro de começar (mesmo espírito de RF-15 para o envio normal), e uma
+  falha aqui **não** vira pendência no painel do admin: quem precisa ser confiável e
+  observável é o envio de verdade, ao encerrar; isto é só um adiantamento de UX.
 - **RN-05 (um segmento, um comentário):** cada segmento do cronômetro vira um registro de
   ponto (spec 010) e, portanto, um **comentário próprio** na mesma tarefa.
 - **RN-06 (edição não reescreve histórico):** editar um ponto já sincronizado gera um

@@ -11,6 +11,7 @@ import type { TaskLink } from "./links";
 import type { ClickUpList } from "./sprint";
 import {
   buildCommentBody,
+  ensureTaskInProgress,
   runJob,
   type PipelineDeps,
   type PipelineEntry,
@@ -116,6 +117,7 @@ function makeClient(): FakeClient {
     getLists: vi.fn<ClickUpClient["getLists"]>(async () => LISTAS),
     getListStatuses: vi.fn<ClickUpClient["getListStatuses"]>(async () => []),
     findTasksInLists: vi.fn<ClickUpClient["findTasksInLists"]>(async () => []),
+    getTask: vi.fn<ClickUpClient["getTask"]>(async () => makeTask()),
     createTask: vi.fn<ClickUpClient["createTask"]>(async (listId, input) =>
       makeTask({ id: "t1", name: input.name, listId }),
     ),
@@ -205,6 +207,103 @@ describe("buildCommentBody", () => {
 });
 
 // --- resolve ---------------------------------------------------------------
+
+// --- ensureTaskInProgress ---------------------------------------------------
+
+/** Só o que `ensureTaskInProgress` precisa de `PipelineEntry`. */
+const IDENTITY = { title: "Criar Acessos", project: "labphase" as const, workDate: "2026-06-25" };
+
+describe("ensureTaskInProgress — gatilho eager de 'iniciar cronômetro'", () => {
+  it("índice bate (branch 1) e a tarefa está parada: move para em andamento", async () => {
+    const deps = makeDeps({
+      link: {
+        clickupTaskId: "t1",
+        clickupTaskUrl: "https://app.clickup.com/t/t1",
+        sprintListId: SPRINT_DESTINO,
+      },
+    });
+    // `resolveTask` (branch 1) não relê o status por si — é exatamente o que
+    // esta função existe para cobrir.
+    deps.client.getTask.mockResolvedValue(makeTask({ statusType: "open" }));
+
+    await ensureTaskInProgress(IDENTITY, 7, CONFIG, deps);
+
+    expect(deps.client.getTask).toHaveBeenCalledWith("t1");
+    expect(deps.client.updateTask).toHaveBeenCalledWith("t1", { status: "fazendo" });
+  });
+
+  it("índice bate e a tarefa já está em andamento: não mexe no status de novo", async () => {
+    const deps = makeDeps({
+      link: {
+        clickupTaskId: "t1",
+        clickupTaskUrl: "https://app.clickup.com/t/t1",
+        sprintListId: SPRINT_DESTINO,
+      },
+    });
+    // "custom" — mesmo `type` do status "em andamento" no workspace real
+    // (não é `open`/`unstarted`, então `shouldMoveToInProgress` é falso).
+    deps.client.getTask.mockResolvedValue(makeTask({ statusType: "custom" }));
+
+    await ensureTaskInProgress(IDENTITY, 7, CONFIG, deps);
+
+    // `resolveTask` (branch 1) ainda chama `updateTask` para acrescentar o
+    // assignee — a garantia é que NENHUMA dessas chamadas leva `status`.
+    const chamadasComStatus = deps.client.updateTask.mock.calls.filter(
+      ([, input]) => "status" in input,
+    );
+    expect(chamadasComStatus).toHaveLength(0);
+  });
+
+  it("tarefa nasce agora (branch 3): já sai em andamento, sem chamada extra", async () => {
+    const deps = makeDeps();
+    deps.client.findTasksInLists.mockResolvedValue([]);
+    // A tarefa criada tem `inProgressStatus` desde o `createTask` — a releitura
+    // reflete isso (tipo "custom", igual ao status configurado no workspace).
+    deps.client.getTask.mockResolvedValue(makeTask({ statusType: "custom" }));
+
+    await ensureTaskInProgress(IDENTITY, 7, CONFIG, deps);
+
+    expect(deps.client.createTask).toHaveBeenCalledTimes(1);
+    expect(deps.client.updateTask).not.toHaveBeenCalled();
+  });
+
+  it("é idempotente com o envio real: a mesma atividade resolve para a mesma tarefa", async () => {
+    // A chamada eager (ensureTaskInProgress) e o push_entry de quando o
+    // cronômetro for encerrado usam o MESMO índice — não podem criar duas
+    // tarefas para a mesma atividade.
+    const deps = makeDeps();
+    deps.client.findTasksInLists.mockResolvedValue([]);
+    deps.client.getTask.mockResolvedValue(makeTask({ statusType: "custom" }));
+
+    await ensureTaskInProgress(IDENTITY, 7, CONFIG, deps);
+
+    expect(deps.upsertLink).toHaveBeenCalledWith({
+      project: "labphase",
+      normalizedTitle: "criar acessos",
+      clickupTaskId: "t1",
+      clickupTaskUrl: "https://app.clickup.com/t/t1",
+      sprintListId: SPRINT_DESTINO,
+    });
+
+    // Simula o job real encontrando o vínculo que acabou de ser gravado.
+    const deps2 = makeDeps({
+      link: {
+        clickupTaskId: "t1",
+        clickupTaskUrl: "https://app.clickup.com/t/t1",
+        sprintListId: SPRINT_DESTINO,
+      },
+    });
+    await runJob(makeJob(), deps2);
+
+    expect(deps2.client.createTask).not.toHaveBeenCalled();
+    expect(deps2.saveEntryTask).toHaveBeenCalledWith(
+      "e1",
+      "t1",
+      "https://app.clickup.com/t/t1",
+      "list_date",
+    );
+  });
+});
 
 describe("runJob — etapa resolve", () => {
   it("cria a tarefa quando não existe nada — CA-01", async () => {

@@ -10,6 +10,7 @@ import {
 import { requirePermission } from "@/lib/auth/guard";
 import { initialSyncStatus, isSyncEnabled } from "@/lib/clickup/enabled";
 import { enqueuePushEntry } from "@/lib/clickup/queue";
+import { markStartedInClickUp } from "@/lib/clickup/start-progress";
 import {
   getActiveTracking,
   getOpenSegment,
@@ -95,6 +96,20 @@ export async function startTracking(
   } catch {
     // A UNIQUE(user_id) protege contra corrida entre abas.
     return { error: "Você já tem um cronômetro ativo." };
+  }
+
+  // Fire-and-forget, DEPOIS do commit: marca a tarefa "em andamento" no
+  // ClickUp já ao iniciar (spec 011). `markStartedInClickUp` nunca lança —
+  // "iniciar cronômetro" não pode esperar rede do ClickUp nem falhar por
+  // causa dela. Só no início de sessão nova (não em `resumeTracking`): RN-04
+  // já estabelece que pausar/retomar não mexe em status, e a tarefa já foi
+  // movida (ou criada) nesta mesma chamada.
+  if (isSyncEnabled()) {
+    void markStartedInClickUp({
+      userId: user.id,
+      title: parsed.data.title,
+      project: parsed.data.project,
+    });
   }
 
   return { ok: true };

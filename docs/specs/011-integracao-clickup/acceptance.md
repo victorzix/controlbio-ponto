@@ -16,7 +16,7 @@
 
 Nenhum token real do ClickUp existiu no ambiente de build. Todo o núcleo (normalização
 de título, janela de sprint, classificação de status, cifra, pipeline, fila) está
-coberto por 230 testes automatizados com um `ClickUpClient` **falso** — mas as três
+coberto por 237 testes automatizados com um `ClickUpClient` **falso** — mas as três
 coisas abaixo só podem ser confirmadas rodando este roteiro contra o `Espaço Teste` do
 workspace real, com um token de verdade:
 
@@ -611,6 +611,47 @@ verificar: o P-01 tem efeito externo **irreversível** nas horas da pessoa.
 
 ---
 
+### Grupo M — Gatilho eager de "iniciar" (RF-21)
+
+#### CT-28 — Iniciar o cronômetro já move a tarefa para "em andamento"
+
+- **Objetivo:** confirmar RF-21 — a pessoa não precisa esperar encerrar para ver a tarefa
+  "em andamento" no ClickUp.
+- **Referências:** _RF-21; RN-02, RN-04, RN-04.1_
+- **Pré-condição:** uma tarefa já existente, com título igual ao que será usado, em
+  status **parado** (ex.: "backlog") na sprint atual.
+
+| # | Passo                                                                 | Resultado esperado                                                                 |
+| - | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| 1 | Anotar o status atual da tarefa no ClickUp.                             | Ex.: "backlog" (parado).                                                                  |
+| 2 | Em `/ponto`, iniciar o cronômetro com o **mesmo título** da tarefa.      | Modal fecha na hora — "iniciar" não espera o ClickUp (RN-04.1).                            |
+| 3 | Aguardar alguns segundos e recarregar a tarefa no ClickUp (sem encerrar o cronômetro ainda). | Status virou o "em andamento" configurado, e a pessoa está entre os responsáveis — mesmo sem ter encerrado nada. |
+| 4 | Pausar e retomar o cronômetro uma vez.                                  | Nenhuma chamada nova ao ClickUp (RN-04) — o status não regride nem é re-tocado.            |
+| 5 | Encerrar o cronômetro normalmente e aguardar o worker.                  | Comentário e lançamento de tempo aparecem na **mesma** tarefa — nenhuma duplicata criada pelo gatilho eager. |
+
+- **Resultado obtido:** ⬜ Passou · ⬜ Falhou
+- **Observações / evidências:**
+
+---
+
+#### CT-29 — Iniciar sobre atividade inédita já cria a tarefa
+
+- **Objetivo:** confirmar que o gatilho eager também **cria** a tarefa quando a
+  atividade é nova, não só quando já existe.
+- **Referências:** _RF-21, RF-02_
+- **Pré-condição:** nenhuma tarefa com este título na sprint atual.
+
+| # | Passo                                                                 | Resultado esperado                                                                 |
+| - | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| 1 | Iniciar o cronômetro com um título inédito.                             | Modal fecha na hora.                                                                       |
+| 2 | Aguardar alguns segundos e checar a sprint atual no ClickUp.             | Tarefa nova existe, já **atribuída** e já no status "em andamento" configurado — antes de qualquer "Encerrar". |
+| 3 | Encerrar o cronômetro e aguardar o worker.                              | A tarefa recebe o comentário e o lançamento de tempo — **não** nasce uma segunda tarefa (o índice já apontava para a criada no passo 2). |
+
+- **Resultado obtido:** ⬜ Passou · ⬜ Falhou
+- **Observações / evidências:**
+
+---
+
 ## Resumo da Execução
 
 | Caso  | CA relacionado | Status        | Observação |
@@ -642,9 +683,11 @@ verificar: o P-01 tem efeito externo **irreversível** nas horas da pessoa.
 | CT-25 | —                | ⬜ Pass / Fail |            |
 | CT-26 | — (P-01)         | ⬜ Pass / Fail |            |
 | CT-27 | — (P-03)         | ⬜ Pass / Fail |            |
+| CT-28 | RF-21            | ⬜ Pass / Fail |            |
+| CT-29 | RF-21            | ⬜ Pass / Fail |            |
 
-- **Total:** 27 casos (23 rastreados a CA-01…CA-23 + 2 de infraestrutura do worker +
-  2 de regressão dos defeitos da revisão final)
+- **Total:** 29 casos (23 rastreados a CA-01…CA-23 + 2 de infraestrutura do worker +
+  2 de regressão dos defeitos da revisão final + 2 do gatilho eager de "iniciar", RF-21)
 - **Passou:** <Y> · **Falhou:** <Z>
 - **Bloqueadores encontrados:** <listar bugs/tickets abertos>
 - **Conclusão:** ⬜ Liberado · ⬜ Reprovado · ⬜ Liberado com ressalvas

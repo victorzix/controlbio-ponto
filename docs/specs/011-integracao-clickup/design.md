@@ -410,8 +410,45 @@ prometeria algo que não acontece. Marcado → o **último** job gerado recebe
 | `deleteEntry`                      | Nada — o `ON DELETE CASCADE` remove o job pendente (**RN-07**)            |
 | `finalizeTracking`                 | N jobs `push_entry`; `move_to_review` no último quando pedido             |
 | Botão "reenviar"                   | Reagenda o job `failed` (`status='pending'`, `attempts=0`, mantendo o `stage`) |
+| `startTracking` (**eager**, fora da fila) | `markStartedInClickUp` (fire-and-forget, `lib/clickup/start-progress.ts`): cria/encontra a tarefa e move para `inProgressStatus` **já ao iniciar o cronômetro**, sem esperar o encerrar. Só na sessão NOVA — `resumeTracking` (depois de pausar) não repete (**RN-04**: pausar/retomar não mexe em status, e a tarefa já foi tratada no início desta sessão) |
 
 Com `CLICKUP_SYNC_ENABLED=false`, nada é enfileirado e o registro nasce `off`.
+
+### 7.1 Gatilho eager de "iniciar cronômetro"
+
+Decisão explícita, tomada depois de a v1 só sincronizar ao **encerrar**: quem começa a
+trabalhar agora espera ver a tarefa "em andamento" no ClickUp na hora, não só quando
+parar. `startTracking` (`lib/tracking/actions.ts`) chama `markStartedInClickUp`
+(`lib/clickup/start-progress.ts`) **fire-and-forget**, depois do commit da transação —
+nunca espera nem falha por causa do ClickUp.
+
+**Roda direto no processo da app, fora da fila/worker** — decisão deliberada, não
+descuido: a fila (`clickup_sync_jobs`) é por `entry_id`, e o registro de ponto só nasce
+ao encerrar o cronômetro. Encaixar este gatilho na fila exigiria um job "órfão" (sem
+`entry_id`) ou uma segunda FK — schema/migration novos para um efeito que não precisa da
+garantia forte da fila: é cosmético (adianta a UX), não a fonte de verdade. Reaproveita o
+mesmo `ClickUpClient` de serviço que `/integracao` já usa nos pickers
+(`getServiceClient`, `clickup/data.ts`) — o processo da app já recebe
+`CLICKUP_API_TOKEN`/`CLICKUP_TEAM_ID` (`docker-compose.yml`, serviço `app`).
+
+**`ensureTaskInProgress`** (`pipeline.ts`) reaproveita `resolveTask` — mesmo índice, mesma
+busca, mesma criação — então é **idempotente com o `push_entry` real**: se a atividade já
+tinha tarefa, os dois resolvem para o mesmo id (índice `clickup_task_links`); se não
+tinha, esta chamada cria a tarefa (já com `status: inProgressStatus`) e o `push_entry` de
+quando o cronômetro for encerrado só a encontra pelo índice.
+
+A única coisa que `resolveTask` sozinho não cobre é o caso mais comum — atividade
+recorrente cuja tarefa já existe **e já está na sprint atual** (branch 1, índice bate de
+cara): ali `resolveTask` **não relê o status de propósito** (RN-02 — "sem reler a tarefa
+não sabemos se ela está parada", custaria uma requisição em TODO ponto salvo). No gatilho
+eager vale o oposto: roda **uma vez por sessão de cronômetro**, não por ponto, então o
+custo de reler (`client.getTask`, novo método) é aceitável — e é o que faz retomar uma
+atividade parada de fato mover a tarefa para "em andamento".
+
+**Falha aqui nunca abre pendência no painel do admin** — ao contrário do `push_entry`
+real (retry com backoff, `clickup_sync_jobs.status='failed'`, listado em `/integracao`),
+um erro no gatilho eager só vai para o log do servidor. É a fonte de verdade que precisa
+ser confiável e observável; o adiantamento de status, não.
 
 ## 8. Estratégia de testes
 
@@ -434,6 +471,11 @@ carry over / concluída→nova), o cabeçalho do comentário nos dois `kind`, o 
 
 **Idempotência (o teste que mais importa):** executar o job a partir de cada `stage` e
 afirmar que não há segunda criação de tarefa, comentário nem lançamento de tempo.
+
+**`ensureTaskInProgress` (gatilho eager, RF-21):** índice bate e a tarefa está parada →
+relê e move; índice bate e já está em andamento → não mexe de novo; tarefa nasce agora →
+já sai em andamento sem chamada extra; e o teste de idempotência com o `push_entry` real
+— a mesma atividade resolve para a mesma tarefa nos dois caminhos.
 
 **Fila:** reivindicação concorrente com `SKIP LOCKED`, backoff, transição para `failed`
 no teto de tentativas, e a cláusula de `releaseJobs` (só devolve o que ainda está

@@ -190,11 +190,31 @@ function listasDeBusca(
  * ou reaproveitando conforme o caso. Deixa o índice
  * `(projeto, título normalizado)` apontando para ela (RN-01).
  */
+/**
+ * O que `resolveTask` precisa do ponto — só identidade e destino, nunca
+ * descrição/tempo (isso é `comment`/`time_entry`, etapas de depois). O tipo
+ * explícito (em vez de `PipelineEntry` inteiro) é o que permite chamar esta
+ * função também **antes de existir um registro de ponto** — `ensureTaskInProgress`,
+ * abaixo, usa exatamente isso para marcar a tarefa "em andamento" já ao
+ * **iniciar** o cronômetro (spec 011, RF-01-eager).
+ */
+type TaskIdentity = Pick<PipelineEntry, "title" | "project" | "workDate"> & {
+  /**
+   * Vai para o corpo da tarefa SE ela nascer agora (branch 3 abaixo) — a
+   * única escrita que a tarefa recebe nesse campo; nunca é reescrito depois.
+   * Ausente no gatilho eager (`ensureTaskInProgress`): ao iniciar o
+   * cronômetro ainda não existe descrição nenhuma, e a tarefa nasce em
+   * branco — quem registra o trabalho é o comentário (RN-06), nunca este
+   * campo.
+   */
+  description?: string;
+};
+
 async function resolveTask(
-  entry: PipelineEntry,
+  entry: TaskIdentity,
   config: ProjectConfig,
   assignee: number,
-  deps: PipelineDeps,
+  deps: Pick<PipelineDeps, "client" | "findLink" | "upsertLink">,
   ctx: RunContext,
 ): Promise<{ id: string; url: string; source: SprintPick["source"] }> {
   const tituloNormalizado = normalizeTitle(entry.title);
@@ -298,7 +318,7 @@ async function resolveTask(
   // oferece o campo.
   const nova = await deps.client.createTask(destino, {
     name: entry.title,
-    markdownDescription: entry.description,
+    markdownDescription: entry.description ?? "",
     status: config.inProgressStatus,
     assignees: [assignee],
   });
@@ -313,6 +333,52 @@ async function resolveTask(
     sprintListId: destino,
   });
   return { id: nova.id, url: nova.url, source: pick.source };
+}
+
+/**
+ * Marca a tarefa "em andamento" já ao **iniciar** o cronômetro — não espera o
+ * envio de verdade, que só acontece ao encerrar (spec 011, gatilho eager).
+ *
+ * Reaproveita `resolveTask` (mesmo índice, mesma busca, mesma criação) — por
+ * isso é **idempotente com o envio real**: se a atividade já tinha tarefa, o
+ * índice resolve pro mesmo id aqui e no `push_entry` de quando o cronômetro
+ * for encerrado (nenhuma tarefa duplicada); se não tinha, esta chamada CRIA a
+ * tarefa (já com `status: inProgressStatus`, branch 3 de `resolveTask`) e o
+ * `push_entry` de depois a encontra pelo índice, só comenta e lança o tempo.
+ *
+ * O que `resolveTask` sozinho NÃO cobre é o caso mais comum de recorrência —
+ * atividade cuja tarefa já existe **e já está na sprint atual** (branch 1,
+ * índice bate de cara): ali `resolveTask` **não relê o status de propósito**
+ * (RN-02 — "sem reler a tarefa não sabemos se ela está parada, e na dúvida
+ * não se mexe no board"), porque reler custaria uma requisição em TODO ponto
+ * salvo. Aqui vale o oposto: esta função roda só uma vez por SESSÃO de
+ * cronômetro (não por ponto), então o custo de uma leitura extra (`getTask`)
+ * é aceitável — e é justamente o motivo de existir: sem ela, retomar uma
+ * atividade recorrente nunca moveria a tarefa parada para "em andamento" até
+ * o cronômetro ser encerrado.
+ *
+ * Nunca lança: chamada em "fire-and-forget" por quem inicia o cronômetro
+ * (`iniciar cronômetro` não pode esperar nem falhar por causa do ClickUp,
+ * mesma regra do resto da integração). Erros viram log, não abrem pendência
+ * no painel do admin — é cosmético (um adiantamento de UX), não a fonte de
+ * verdade: o `push_entry` de quando o cronômetro for encerrado continua sendo
+ * o único envio que precisa ser confiável, retentável e observável.
+ */
+export async function ensureTaskInProgress(
+  entry: TaskIdentity,
+  assignee: number,
+  config: ProjectConfig,
+  deps: Pick<PipelineDeps, "client" | "findLink" | "upsertLink">,
+): Promise<void> {
+  const ctx: RunContext = { stage: "resolve", taskId: null };
+  const { id } = await resolveTask(entry, config, assignee, deps, ctx);
+
+  // Sempre relê: é o único jeito de saber se a tarefa está PARADA agora (o
+  // branch 1 de `resolveTask`, o caminho comum, não devolve o status atual).
+  const atual = await deps.client.getTask(id);
+  if (shouldMoveToInProgress(atual.statusType)) {
+    await deps.client.updateTask(id, { status: config.inProgressStatus });
+  }
 }
 
 /**
