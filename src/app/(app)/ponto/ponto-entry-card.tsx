@@ -3,6 +3,7 @@
 import { Markdown } from "@/components/ui/markdown";
 import { Badge } from "@/components/ui/badge";
 import { formatWorkedMinutes } from "@/lib/ponto/validation";
+import { ClickUpSyncBadge } from "./clickup-sync-badge";
 import { PontoEntryActions } from "./ponto-entry-actions";
 import type { PontoEntryFormData } from "./ponto-form";
 
@@ -38,6 +39,15 @@ export function PontoEntryCard({
       <Badge variant="secondary">
         {formatWorkedMinutes(entry.workedMinutes)}
       </Badge>
+      <ClickUpSyncBadge
+        entryId={entry.id}
+        status={entry.clickupSyncStatus}
+        taskUrl={entry.clickupTaskUrl}
+        sprintSource={entry.clickupSprintSource}
+        lastError={entry.clickupLastError}
+        jobStage={entry.clickupJobStage}
+        moveToReview={entry.clickupJobMoveToReview}
+      />
       <PontoEntryActions
         entry={entry}
         today={today}

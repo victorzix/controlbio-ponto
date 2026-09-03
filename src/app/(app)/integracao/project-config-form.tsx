@@ -1,0 +1,575 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { useForm, useWatch, Controller } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useQuery } from "@tanstack/react-query";
+import { Loader2, FlaskConical } from "lucide-react";
+import { toast } from "sonner";
+import {
+  fetchSpaces,
+  fetchFolders,
+  fetchLists,
+  fetchListStatuses,
+  saveProjectConfig,
+  testProjectConfig,
+  type ClickUpOption,
+  type TestConfigResult,
+} from "@/lib/clickup/actions";
+import {
+  projectConfigSchema,
+  type ProjectConfigFormValues,
+} from "@/lib/clickup/validation";
+import type { ProjectConfig } from "@/lib/clickup/config";
+import type { Project } from "@/lib/ponto/validation";
+import { notifyUnexpectedError } from "@/lib/forms/notify-error";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
+
+type Props = {
+  project: Project;
+  projectLabel: string;
+  initialConfig: ProjectConfig | null;
+};
+
+/**
+ * Sentinel do item "Nenhum" em `doneStatus` — Radix `Select` reserva
+ * `value=""` para "nada selecionado" e não aceita um item com esse valor.
+ * Só este campo precisa disso: os demais selects deste form usam `value=""`
+ * como estado de placeholder mesmo (sem item algum representando-o), porque
+ * neles "" nunca é uma escolha explícita da pessoa — é só "ainda não
+ * escolheu". Aqui "Nenhum" É uma escolha (RF-09: sem status de conclusão
+ * configurado, a tarefa nunca é movida ao encerrar o cronômetro).
+ */
+const NENHUM_STATUS = "__nenhum__";
+
+/** Garante que o valor salvo apareça na lista mesmo que ainda não tenha carregado. */
+function withCurrent(
+  options: ClickUpOption[],
+  current: string,
+): ClickUpOption[] {
+  if (!current || options.some((o) => o.id === current)) return options;
+  return [...options, { id: current, name: `${current} (carregando...)` }];
+}
+
+function sourceLabel(source: "list_date" | "list_name" | "backlog"): string {
+  if (source === "list_date") return "pela data da própria Lista";
+  if (source === "list_name") return "pelo nome da Lista";
+  return "foi para o backlog — sprint não resolvida";
+}
+
+/**
+ * Card de configuração de um projeto: pickers encadeados Space → Folder →
+ * Lista de backlog → status de andamento → status de conclusão, formato de
+ * data da sprint e liga/desliga. RHF + Zod (CLAUDE.md §7); dados dos pickers
+ * vêm do client via React Query (CLAUDE.md §6 — exceção do App Router não se
+ * aplica, pois dependem de escolhas feitas na hora).
+ */
+export function ProjectConfigForm({ project, projectLabel, initialConfig }: Props) {
+  const [hasSavedConfig, setHasSavedConfig] = useState(!!initialConfig);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<TestConfigResult | null>(null);
+
+  const {
+    control,
+    register,
+    handleSubmit,
+    setValue,
+    setError,
+    formState: { errors, isSubmitting },
+  } = useForm<ProjectConfigFormValues>({
+    resolver: zodResolver(projectConfigSchema),
+    defaultValues: {
+      project,
+      spaceId: initialConfig?.spaceId ?? "",
+      folderId: initialConfig?.folderId ?? "",
+      backlogListId: initialConfig?.backlogListId ?? "",
+      inProgressStatus: initialConfig?.inProgressStatus ?? "",
+      doneStatus: initialConfig?.doneStatus ?? "",
+      sprintDateFormat: initialConfig?.sprintDateFormat ?? "dmy",
+      enabled: initialConfig?.enabled ?? true,
+    },
+  });
+
+  // `useWatch` (não `watch()`) — compatível com o React Compiler (memoização
+  // segura), diferente do `watch()` de `useForm`, que o compiler não consegue
+  // memoizar (aviso do eslint-plugin-react-hooks/incompatible-library).
+  const spaceId = useWatch({ control, name: "spaceId" });
+  const folderId = useWatch({ control, name: "folderId" });
+  const backlogListId = useWatch({ control, name: "backlogListId" });
+  const inProgressStatus = useWatch({ control, name: "inProgressStatus" });
+  const doneStatus = useWatch({ control, name: "doneStatus" });
+  const sprintDateFormat = useWatch({ control, name: "sprintDateFormat" });
+  const enabled = useWatch({ control, name: "enabled" });
+
+  // O resultado do "Testar" descreve uma configuração específica; se qualquer
+  // campo do qual ele depende mudar depois (mesmo sem salvar de novo), o
+  // resultado na tela passa a descrever uma configuração que não é mais a
+  // que está nos campos — limpa para não mostrar um veredito desatualizado.
+  // `isFirstRender` evita apagar um resultado só porque o formulário montou
+  // (o `useWatch` dispara no mount com os valores iniciais).
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    setTestResult(null);
+  }, [
+    spaceId,
+    folderId,
+    backlogListId,
+    inProgressStatus,
+    doneStatus,
+    sprintDateFormat,
+  ]);
+
+  const spacesQuery = useQuery({
+    queryKey: ["clickup", "spaces"],
+    queryFn: fetchSpaces,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const foldersQuery = useQuery({
+    queryKey: ["clickup", "folders", spaceId],
+    queryFn: () => fetchFolders(spaceId),
+    enabled: !!spaceId,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const listsQuery = useQuery({
+    queryKey: ["clickup", "lists", folderId],
+    queryFn: () => fetchLists(folderId),
+    enabled: !!folderId,
+    staleTime: 60 * 1000,
+  });
+
+  const statusesQuery = useQuery({
+    queryKey: ["clickup", "statuses", backlogListId],
+    queryFn: () => fetchListStatuses(backlogListId),
+    enabled: !!backlogListId,
+    staleTime: 60 * 1000,
+  });
+
+  const spaceOptions = withCurrent(spacesQuery.data ?? [], spaceId);
+  const folderOptions = withCurrent(foldersQuery.data ?? [], folderId);
+  const listOptions = withCurrent(
+    (listsQuery.data ?? []).map((l) => ({ id: l.id, name: l.name })),
+    backlogListId,
+  );
+  const statusOptions = statusesQuery.data ?? [];
+
+  async function onValid(data: ProjectConfigFormValues) {
+    try {
+      const res = await saveProjectConfig(data);
+      if (res.ok) {
+        setHasSavedConfig(true);
+        setTestResult(null);
+        toast.success(`Configuração de ${projectLabel} salva.`);
+        return;
+      }
+      if (res.fieldErrors) {
+        for (const [field, message] of Object.entries(res.fieldErrors)) {
+          setError(field as keyof ProjectConfigFormValues, { message });
+        }
+      } else if (res.error) {
+        setError("root", { message: res.error });
+      }
+    } catch (err) {
+      notifyUnexpectedError(err);
+    }
+  }
+
+  async function handleTest() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await testProjectConfig(project);
+      setTestResult(res);
+    } catch (err) {
+      notifyUnexpectedError(err);
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between gap-2 text-base">
+          {projectLabel}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit(onValid)} className="flex flex-col gap-4" noValidate>
+          <input type="hidden" {...register("project")} />
+
+          {errors.root ? (
+            <p role="alert" className="text-destructive text-sm">
+              {errors.root.message}
+            </p>
+          ) : null}
+
+          {/* Space */}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor={`${project}-space`}>Space</Label>
+            <Controller
+              control={control}
+              name="spaceId"
+              render={({ field }) => (
+                <Select
+                  value={field.value}
+                  onValueChange={(v) => {
+                    field.onChange(v);
+                    // Muda o Space: tudo que dependia dele fica inválido.
+                    setValue("folderId", "");
+                    setValue("backlogListId", "");
+                    setValue("inProgressStatus", "");
+                    setValue("doneStatus", "");
+                  }}
+                  disabled={spacesQuery.isPending}
+                >
+                  <SelectTrigger
+                    id={`${project}-space`}
+                    onBlur={field.onBlur}
+                    className="h-11 w-full text-base md:text-sm"
+                    aria-invalid={!!errors.spaceId || undefined}
+                  >
+                    <SelectValue
+                      placeholder={
+                        spacesQuery.isPending ? "Carregando..." : "Selecione..."
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {spaceOptions.map((o) => (
+                      <SelectItem key={o.id} value={o.id}>
+                        {o.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+            {errors.spaceId ? (
+              <p className="text-destructive text-sm">{errors.spaceId.message}</p>
+            ) : spacesQuery.isError ? (
+              <p className="text-destructive text-sm">Não foi possível carregar os Spaces.</p>
+            ) : null}
+          </div>
+
+          {/* Folder */}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor={`${project}-folder`}>Folder</Label>
+            <Controller
+              control={control}
+              name="folderId"
+              render={({ field }) => (
+                <Select
+                  value={field.value}
+                  onValueChange={(v) => {
+                    field.onChange(v);
+                    setValue("backlogListId", "");
+                    setValue("inProgressStatus", "");
+                    setValue("doneStatus", "");
+                  }}
+                  disabled={!spaceId || foldersQuery.isPending}
+                >
+                  <SelectTrigger
+                    id={`${project}-folder`}
+                    onBlur={field.onBlur}
+                    className="h-11 w-full text-base md:text-sm"
+                    aria-invalid={!!errors.folderId || undefined}
+                  >
+                    <SelectValue
+                      placeholder={
+                        !spaceId
+                          ? "Selecione um Space primeiro"
+                          : foldersQuery.isPending
+                            ? "Carregando..."
+                            : "Selecione..."
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {folderOptions.map((o) => (
+                      <SelectItem key={o.id} value={o.id}>
+                        {o.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+            {errors.folderId ? (
+              <p className="text-destructive text-sm">{errors.folderId.message}</p>
+            ) : foldersQuery.isError ? (
+              <p className="text-destructive text-sm">Não foi possível carregar os Folders.</p>
+            ) : null}
+          </div>
+
+          {/* Lista de backlog */}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor={`${project}-backlog`}>Lista de backlog</Label>
+            <Controller
+              control={control}
+              name="backlogListId"
+              render={({ field }) => (
+                <Select
+                  value={field.value}
+                  onValueChange={(v) => {
+                    field.onChange(v);
+                    setValue("inProgressStatus", "");
+                    setValue("doneStatus", "");
+                  }}
+                  disabled={!folderId || listsQuery.isPending}
+                >
+                  <SelectTrigger
+                    id={`${project}-backlog`}
+                    onBlur={field.onBlur}
+                    className="h-11 w-full text-base md:text-sm"
+                    aria-invalid={!!errors.backlogListId || undefined}
+                  >
+                    <SelectValue
+                      placeholder={
+                        !folderId
+                          ? "Selecione um Folder primeiro"
+                          : listsQuery.isPending
+                            ? "Carregando..."
+                            : "Selecione..."
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {listOptions.map((o) => (
+                      <SelectItem key={o.id} value={o.id}>
+                        {o.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+            {errors.backlogListId ? (
+              <p className="text-destructive text-sm">{errors.backlogListId.message}</p>
+            ) : listsQuery.isError ? (
+              <p className="text-destructive text-sm">Não foi possível carregar as Listas.</p>
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                Para onde vai o ponto quando nenhuma sprint casa com a data (RF-07).
+              </p>
+            )}
+          </div>
+
+          <p className="text-muted-foreground text-sm">
+            As opções abaixo vêm dos status da Lista de backlog. Se este Folder
+            usa status por Lista (em vez de um conjunto único por Folder), a
+            sprint de destino pode ter um conjunto diferente — confirme com
+            &quot;Testar&quot; depois de salvar.
+          </p>
+
+          {/* Status "em andamento" */}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor={`${project}-in-progress`}>Status &quot;em andamento&quot;</Label>
+            <Controller
+              control={control}
+              name="inProgressStatus"
+              render={({ field }) => (
+                <Select
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  disabled={!backlogListId || statusesQuery.isPending}
+                >
+                  <SelectTrigger
+                    id={`${project}-in-progress`}
+                    onBlur={field.onBlur}
+                    className="h-11 w-full text-base md:text-sm"
+                    aria-invalid={!!errors.inProgressStatus || undefined}
+                  >
+                    <SelectValue
+                      placeholder={
+                        !backlogListId
+                          ? "Selecione a Lista de backlog primeiro"
+                          : statusesQuery.isPending
+                            ? "Carregando..."
+                            : "Selecione..."
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {statusOptions.map((s) => (
+                      <SelectItem key={s.id} value={s.status}>
+                        {s.status}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+            {errors.inProgressStatus ? (
+              <p className="text-destructive text-sm">{errors.inProgressStatus.message}</p>
+            ) : statusesQuery.isError ? (
+              <p className="text-destructive text-sm">Não foi possível carregar os status.</p>
+            ) : null}
+          </div>
+
+          {/* Status "concluído" (opcional) */}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor={`${project}-done`}>Status &quot;concluído&quot; (opcional)</Label>
+            <Controller
+              control={control}
+              name="doneStatus"
+              render={({ field }) => (
+                <Select
+                  value={field.value || NENHUM_STATUS}
+                  onValueChange={(v) =>
+                    field.onChange(v === NENHUM_STATUS ? "" : v)
+                  }
+                  disabled={!backlogListId || statusesQuery.isPending}
+                >
+                  <SelectTrigger
+                    id={`${project}-done`}
+                    onBlur={field.onBlur}
+                    className="h-11 w-full text-base md:text-sm"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NENHUM_STATUS}>Nenhum</SelectItem>
+                    {statusOptions.map((s) => (
+                      <SelectItem key={s.id} value={s.status}>
+                        {s.status}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </div>
+
+          {/* Formato da data da sprint — segmented control (design system §6) */}
+          <div className="flex flex-col gap-2">
+            <Label>Formato da data no nome da sprint</Label>
+            <div
+              role="tablist"
+              className="bg-muted flex w-full rounded-lg p-1"
+            >
+              {(
+                [
+                  { value: "dmy" as const, label: "DD/MM" },
+                  { value: "mdy" as const, label: "MM/DD" },
+                ]
+              ).map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={sprintDateFormat === opt.value}
+                  onClick={() => setValue("sprintDateFormat", opt.value)}
+                  className={cn(
+                    "min-h-[44px] flex-1 rounded-md text-sm font-medium transition-colors",
+                    sprintDateFormat === opt.value
+                      ? "bg-background shadow-sm"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-muted-foreground text-sm">
+              Rede de segurança quando a Lista não tem data — usado para ler a
+              janela no nome (ex.: &quot;(1/9 - 15/9)&quot;).
+            </p>
+          </div>
+
+          {/* Ativar/desativar */}
+          <label className="flex min-h-[44px] items-center gap-3 text-sm">
+            <input
+              type="checkbox"
+              className="accent-primary size-5 shrink-0"
+              checked={enabled}
+              onChange={(e) => setValue("enabled", e.target.checked)}
+            />
+            Ativar integração para {projectLabel}
+          </label>
+
+          <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11"
+              disabled={!hasSavedConfig || testing}
+              onClick={handleTest}
+            >
+              {testing ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <FlaskConical className="size-4" />
+              )}
+              Testar
+            </Button>
+            <Button type="submit" className="h-11" disabled={isSubmitting}>
+              {isSubmitting ? "Salvando..." : "Salvar"}
+            </Button>
+          </div>
+
+          <p className="text-muted-foreground text-sm">
+            {!hasSavedConfig
+              ? "Salve a configuração antes de testar."
+              : "O teste usa a última configuração salva — salve de novo após alterar os campos acima."}
+          </p>
+
+          {testResult ? (
+            <div
+              role="status"
+              className={cn(
+                "rounded-md border p-3 text-sm",
+                !testResult.ok || testResult.statusIssues.length > 0
+                  ? "border-destructive/50"
+                  : "border-border bg-muted",
+              )}
+            >
+              {testResult.ok ? (
+                <>
+                  <p>
+                    Um ponto de hoje iria para a Lista{" "}
+                    <span className="font-medium">{testResult.listName}</span> —{" "}
+                    {sourceLabel(testResult.source)}.
+                  </p>
+                  {testResult.statusIssues.length > 0 ? (
+                    <ul className="text-destructive mt-2 list-disc pl-5">
+                      {testResult.statusIssues.map((msg) => (
+                        <li key={msg}>{msg}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-muted-foreground mt-2">
+                      Os status configurados existem nessa Lista.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-destructive">{testResult.error}</p>
+              )}
+            </div>
+          ) : null}
+        </form>
+      </CardContent>
+    </Card>
+  );
+}

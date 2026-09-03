@@ -56,6 +56,71 @@ docker compose exec db pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > backup_$(dat
 # Os dados ficam no volume `postgres_data` (sobrevive a `down`; some com `down -v`).
 ```
 
+## Worker do ClickUp (spec 011)
+
+O serviço `worker` consome a fila `clickup_sync_jobs` e fala com a API do ClickUp
+(criar/atualizar tarefa, comentar, lançar tempo) para refletir o ponto batido no board
+da sprint — **é o único que precisa ser confiável e observável** (retry com backoff,
+falha listada em `/integracao`). Ele nasce quando a app grava o job na mesma transação
+em que salva o ponto ou encerra o cronômetro.
+
+A **app** também fala com a API do ClickUp, direto, mas só em dois lugares cosméticos
+(melhor esforço, nunca abrem pendência no painel do admin): as telas de configuração do
+admin (`/integracao`) e o gatilho eager de "iniciar cronômetro" (RF-21 — marca a tarefa
+em andamento na hora, sem esperar o worker). Por isso o serviço `app`, e não só o
+`worker`, também recebe `CLICKUP_API_TOKEN`/`CLICKUP_TEAM_ID`/etc no
+`docker-compose.yml` — e precisa do mesmo acesso de saída à internet
+(`api.clickup.com`) que o worker, se o firewall/rede da VPS segmentar por container.
+
+- Roda a partir do estágio `tools` do `Dockerfile` — o mesmo do `migrate` (tem `tsx` e
+  o código-fonte completo; o `runner` só tem o build standalone da app, sem isso).
+- Comando: `npm run worker:clickup` (definido no `docker-compose.yml`).
+- Acompanhar: `docker compose logs -f worker`.
+- **Sem `CLICKUP_API_TOKEN`/`CLICKUP_TEAM_ID`**, o worker loga uma linha
+  (`sem CLICKUP_API_TOKEN/CLICKUP_TEAM_ID — nada a fazer.`) e encerra **com sucesso**
+  — não é uma falha. Como o serviço é `restart: unless-stopped`, o compose volta a
+  subi-lo, então num ambiente sem token ele fica reiniciando e repetindo essa linha
+  periodicamente; é inofensivo, mas se incomodar nos logs, pare-o com
+  `docker compose stop worker`.
+- Encerra de forma graciosa em `SIGTERM`/`SIGINT`: termina o **job em andamento** e para
+  na fronteira do próximo, nunca no meio de uma etapa — é o que evita duplicar comentário
+  ou lançamento de tempo num retry após um `docker compose down`/`restart worker`.
+  Por isso o serviço declara `stop_grace_period: 60s`: a carência padrão do Docker (10s)
+  é menor que o job mais caro (3 a 7 requisições no teto de 90/min) e viraria `SIGKILL`
+  no meio do trabalho.
+- **A garantia acima vale para uma parada com sinal.** Numa morte sem chance de encerrar
+  (SIGKILL depois da carência, OOM, queda da máquina) o job fica marcado `running` no
+  banco. Isso não o perde: `claimJobs` **retoma** job preso em `running` há mais de
+  15 minutos, e ele recomeça da etapa gravada (`stage`), não do início — nada é
+  duplicado. Na prática, um ponto pode ficar até ~15 minutos em "sincronizando" depois
+  de uma queda dura antes de a fila voltar a andar sozinha.
+
+### Variáveis de ambiente
+
+| Variável                     | Papel                                                | Padrão |
+| ----------------------------- | ----------------------------------------------------- | ------ |
+| `CLICKUP_API_TOKEN`           | Token de serviço do workspace (`pk_...`)               | —      |
+| `CLICKUP_TEAM_ID`              | Workspace (team) de destino                            | —      |
+| `CLICKUP_TOKEN_ENC_KEY`        | Chave AES-256 (base64, 32 bytes) dos tokens pessoais   | —      |
+| `CLICKUP_RATE_LIMIT_PER_MIN`   | Teto de requisições por minuto ao ClickUp              | `90`   |
+| `CLICKUP_WORKER_POLL_MS`       | Intervalo de sondagem da fila                          | `5000` |
+| `CLICKUP_MAX_ATTEMPTS`         | Tentativas automáticas antes de exigir reenvio manual  | `5`    |
+
+Gere `CLICKUP_TOKEN_ENC_KEY` uma vez, antes da primeira subida:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+### ⚠️ `CLICKUP_TOKEN_ENC_KEY` é segredo — trate como credencial de banco
+
+Essa chave cifra o token pessoal de cada pessoa que conecta a própria conta do ClickUp
+em **Minha conta → ClickUp**. **Perder essa chave (ou trocá-la sem migrar os dados)
+invalida todos os tokens pessoais já armazenados** — os valores cifrados no banco ficam
+indecifráveis para sempre, e **cada pessoa precisa reconectar** a própria conta. Guarde-a
+com o mesmo cuidado que `POSTGRES_PASSWORD`: fora do controle de versão, com backup, e
+nunca a rotacione sem um plano para o reonboarding de quem já conectou.
+
 ## Notas
 
 - A app fala com o banco pelo host interno `db` (rede do compose). O `DATABASE_URL`

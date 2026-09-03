@@ -27,6 +27,9 @@
   --accent-foreground:   oklch(0.27 0.02 165);
   --destructive:         oklch(0.58 0.22 27);
   --destructive-foreground: oklch(0.985 0 0);
+  /* Alerta leve (não é erro) — ex.: ponto sincronizado sem sprint (spec 011). */
+  --warning:             oklch(0.85 0.14 80);
+  --warning-foreground:  oklch(0.32 0.09 70);
   --border:              oklch(0.91 0.01 160);
   --input:               oklch(0.91 0.01 160);
   --ring:                oklch(0.60 0.128 163);
@@ -61,6 +64,8 @@
   --accent-foreground:   oklch(0.97 0.01 160);
   --destructive:         oklch(0.70 0.19 25);
   --destructive-foreground: oklch(0.985 0 0);
+  --warning:             oklch(0.35 0.09 75);
+  --warning-foreground:  oklch(0.90 0.12 85);
   --border:              oklch(1 0 0 / 10%);
   --input:               oklch(1 0 0 / 15%);
   --ring:                oklch(0.70 0.13 163);
@@ -99,6 +104,8 @@
   --color-accent-foreground:   var(--accent-foreground);
   --color-destructive:         var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-warning:             var(--warning);
+  --color-warning-foreground:  var(--warning-foreground);
   --color-border:              var(--border);
   --color-input:               var(--input);
   --color-ring:                var(--ring);

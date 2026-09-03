@@ -76,8 +76,52 @@ services:
       # senão o login não funciona. ⚠️ Sem HTTPS, senha/sessão trafegam em texto
       # puro — coloque um proxy TLS (Caddy/nginx) na frente assim que possível.
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      # Integração ClickUp (spec 011) — quem PROCESSA a fila de sincronização
+      # (criar tarefa, comentar, lançar tempo) é só o serviço `worker`, abaixo.
+      # Mas a app TAMBÉM fala com a API, direto, em dois lugares próprios: as
+      # telas de configuração do admin (`/integracao`, pickers de Space/Folder/
+      # Lista/status) e o gatilho eager de "iniciar cronômetro" (RF-21, marca a
+      # tarefa em andamento na hora, sem esperar o worker) — por isso as mesmas
+      # credenciais são passadas aqui também, não só no `worker`.
+      CLICKUP_API_TOKEN: ${CLICKUP_API_TOKEN:-}
+      CLICKUP_TEAM_ID: ${CLICKUP_TEAM_ID:-}
+      CLICKUP_TOKEN_ENC_KEY: ${CLICKUP_TOKEN_ENC_KEY:-}
+      CLICKUP_RATE_LIMIT_PER_MIN: ${CLICKUP_RATE_LIMIT_PER_MIN:-90}
     ports:
       - "${APP_PORT:-3000}:3000"
+
+  # Worker da integração com o ClickUp (spec 011). Consome `clickup_sync_jobs`.
+  # Usa o estágio `tools` porque precisa de tsx + código-fonte (o `runner` só tem
+  # o build standalone da app). Sem CLICKUP_API_TOKEN ele encerra sozinho.
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: tools
+    container_name: controlbio-ponto-worker
+    restart: unless-stopped
+    # A carência padrão do Docker é 10s — curta demais: o worker só encerra na
+    # FRONTEIRA entre jobs (nunca no meio de um, para não duplicar comentário ou
+    # lançamento de tempo no retry — RN-13), e um job custa de 3 a 7 requisições
+    # no teto de 90/min. Com 10s, o `docker compose down`/`restart` viraria
+    # SIGKILL no meio do job, deixando-o preso em `running` (recuperado só
+    # depois pela retomada de claim preso em `claimJobs`).
+    stop_grace_period: 60s
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    command: ["npm", "run", "worker:clickup"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-controlbio}:${POSTGRES_PASSWORD:-controlbio}@db:5432/${POSTGRES_DB:-controlbio_ponto}
+      CLICKUP_API_TOKEN: ${CLICKUP_API_TOKEN:-}
+      CLICKUP_TEAM_ID: ${CLICKUP_TEAM_ID:-}
+      CLICKUP_TOKEN_ENC_KEY: ${CLICKUP_TOKEN_ENC_KEY:-}
+      CLICKUP_RATE_LIMIT_PER_MIN: ${CLICKUP_RATE_LIMIT_PER_MIN:-90}
+      CLICKUP_WORKER_POLL_MS: ${CLICKUP_WORKER_POLL_MS:-5000}
+      CLICKUP_MAX_ATTEMPTS: ${CLICKUP_MAX_ATTEMPTS:-5}
 
 volumes:
   postgres_data:

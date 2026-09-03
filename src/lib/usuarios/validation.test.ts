@@ -53,6 +53,59 @@ describe("createUserSchema", () => {
     expect(createUserSchema.safeParse({ ...base, password: "123" }).success).toBe(false);
   });
 
+  it("aceita vínculo com o ClickUp ausente (opcional — RN-09)", () => {
+    const r = createUserSchema.safeParse(base);
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.clickupUserId).toBeUndefined();
+  });
+
+  it("trata string vazia de clickupUserId como 'sem vínculo'", () => {
+    const r = createUserSchema.safeParse({ ...base, clickupUserId: "" });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.clickupUserId).toBeUndefined();
+  });
+
+  it("converte o id do membro do ClickUp (string) para número", () => {
+    const r = createUserSchema.safeParse({ ...base, clickupUserId: "123" });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.clickupUserId).toBe(123);
+  });
+
+  it("rejeita vínculo com o ClickUp inválido (não numérico)", () => {
+    expect(
+      createUserSchema.safeParse({ ...base, clickupUserId: "abc" }).success,
+    ).toBe(false);
+  });
+
+  /**
+   * O bug real do form: `zodResolver` já roda este schema NO CLIENT antes de
+   * chamar a Server Action, então `onValid` recebe `clickupUserId` como
+   * `number` (a SAÍDA da transform, não a string do select) — e é ISSO que
+   * chega ao servidor, que reaplica o MESMO schema (CLAUDE.md §7). Só aceitar
+   * `string` aqui fazia o servidor rejeitar toda escolha real de membro com
+   * "Invalid input: expected string, received number" — nunca detectado
+   * porque, até o token/team do ClickUp serem configurados corretamente, o
+   * select ficava sempre desabilitado e nenhum vínculo real chegava a ser
+   * salvo de ponta a ponta.
+   */
+  it("aceita o id do membro do ClickUp já como número (o que o client reenvia)", () => {
+    const r = createUserSchema.safeParse({ ...base, clickupUserId: 123 });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.clickupUserId).toBe(123);
+  });
+
+  it("rejeita id do ClickUp negativo mesmo já vindo como número", () => {
+    expect(
+      createUserSchema.safeParse({ ...base, clickupUserId: -1 }).success,
+    ).toBe(false);
+  });
+
+  it("rejeita id do ClickUp não-inteiro mesmo já vindo como número", () => {
+    expect(
+      createUserSchema.safeParse({ ...base, clickupUserId: 1.5 }).success,
+    ).toBe(false);
+  });
+
   it("rejeita e-mail inválido quando informado", () => {
     expect(createUserSchema.safeParse({ ...base, email: "nao-email" }).success).toBe(false);
   });

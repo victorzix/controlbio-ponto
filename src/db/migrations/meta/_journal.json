@@ -71,6 +71,20 @@
       "when": 1784568457503,
       "tag": "0009_far_fallen_one",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788373258415,
+      "tag": "0010_lyrical_major_mapleleaf",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1788387788990,
+      "tag": "0011_curvy_kitty_pryde",
+      "breakpoints": true
     }
   ]
 }

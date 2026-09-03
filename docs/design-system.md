@@ -6,8 +6,8 @@
 
 | Campo         | Valor              |
 | ------------- | ------------------ |
-| Versão        | 1.11               |
-| Atualizado em | 2026-06-29         |
+| Versão        | 1.13               |
+| Atualizado em | 2026-09-02         |
 | Stack visual  | Tailwind CSS v4 · shadcn/ui (new-york) · lucide-react · motion |
 
 ---
@@ -59,6 +59,8 @@ referenciam sempre o **token semântico** (`bg-primary`, `text-muted-foreground`
 | `--accent-foreground`      | `oklch(0.27 0.02 165)`       | `#2C3B35` | Texto sobre accent |
 | `--destructive`            | `oklch(0.58 0.22 27)`        | `#D23F3F` | Erro/exclusão |
 | `--destructive-foreground` | `oklch(0.985 0 0)`           | `#FCFCFC` | Texto sobre destructive |
+| `--warning`                | `oklch(0.85 0.14 80)`        | `#F0C468` | Alerta leve (não é erro) — ex.: sincronizado sem sprint (v1.12) |
+| `--warning-foreground`     | `oklch(0.32 0.09 70)`        | `#5C4013` | Texto sobre warning |
 | `--border`                 | `oklch(0.91 0.01 160)`       | `#E2E7E5` | Bordas |
 | `--input`                  | `oklch(0.91 0.01 160)`       | `#E2E7E5` | Borda de inputs |
 | `--ring`                   | `oklch(0.60 0.128 163)`      | `#159A6B` | Anel de foco (verde da marca) |
@@ -92,6 +94,8 @@ referenciam sempre o **token semântico** (`bg-primary`, `text-muted-foreground`
 | `--accent-foreground`      | `oklch(0.97 0.01 160)`       | `#F2F6F4` |
 | `--destructive`            | `oklch(0.70 0.19 25)`        | `#E8654F` |
 | `--destructive-foreground` | `oklch(0.985 0 0)`           | `#FCFCFC` |
+| `--warning`                | `oklch(0.35 0.09 75)`        | `#5A4419` |
+| `--warning-foreground`     | `oklch(0.90 0.12 85)`        | `#F5D89A` |
 | `--border`                 | `oklch(1 0 0 / 10%)`         | —         |
 | `--input`                  | `oklch(1 0 0 / 15%)`         | —         |
 | `--ring`                   | `oklch(0.70 0.13 163)`       | `#2FBE86` |
@@ -178,12 +182,36 @@ referenciam sempre o **token semântico** (`bg-primary`, `text-muted-foreground`
   refazer a query a cada toque); inclui atalhos **Marcar todos** / **Limpar**. Padrão em **/** (Relatórios),
   ver `src/app/(app)/user-multiselect.tsx`.
 - **Badge:** status/rótulos curtos. Convenção: ativo = `secondary`/`default`; inativo/neutro = `outline`;
-  erro/alerta = `destructive`.
+  erro/alerta = `destructive`; alerta leve (algo deu certo, mas com ressalva) = `warning` (v1.12).
+- **Badge de sincronização (ClickUp, v1.13):** padrão de indicador de estado assíncrono no card do
+  ponto (`src/app/(app)/ponto/clickup-sync-badge.tsx`, spec `011-integracao-clickup`). Cinco estados,
+  cada um com seu token e seu ícone `lucide-react`:
+  - `pending` — badge `variant="outline"` com `text-muted-foreground`, ícone `Clock`; rótulo
+    "sincronizando".
+  - `synced` — badge `variant="secondary"`, ícone `ExternalLink`; rótulo "sincronizado". O badge
+    inteiro é um link (`<a target="_blank">`) para a tarefa no ClickUp.
+  - `synced` com `clickup_sprint_source = 'backlog'` — mesma forma, mas na variante `warning` (v1.12)
+    com ícone `AlertTriangle`; rótulo "sem sprint" — o ponto chegou ao ClickUp, só que caiu no destino
+    de reserva em vez de uma sprint (RF-07/CA-21 da spec 011).
+  - `failed` — badge `variant="destructive"` com `AlertTriangle`, mais um botão `variant="ghost"
+    size="icon"` de reenviar (`RefreshCw`, gira durante o reenvio) ao lado.
+  - `off` — não renderiza nada (registro nascido com a integração desligada para aquele projeto).
+  - **Alvo de toque:** um pseudo-elemento `::before` (`before:absolute before:-inset-3`) estica a área
+    clicável a ≥44px sem alterar a altura visível da linha — necessário porque o badge em si é
+    compacto e a densidade do card não pode aumentar por causa dele.
+  - **Transição (`motion`):** troca de estado com `AnimatePresence mode="wait"` + fade/slide vertical
+    de 4px, 150ms `ease-out` (mesma receita de §7); cai para fade puro em `prefers-reduced-motion`.
+  - No mobile o rótulo de texto some (`hidden sm:inline`) e sobra só o ícone, mantendo o alvo de 44px.
 - **Rich text:** padrão **Markdown**. Edição via textarea + mini-toolbar (negrito/itálico/link/lista) +
   preview; exibição via componente próprio `<Markdown>` (`components/ui/markdown.tsx`), que é **seguro por
   construção** (monta nós React, sem `dangerouslySetInnerHTML`; links só com esquema `http(s)`/`mailto`).
   Subset: negrito, itálico, código, links, listas, parágrafos. Não usamos editores WYSIWYG/libs externas.
-- **Formulários:** padrão `useActionState` + Server Action (sem react-hook-form). Erros por campo inline.
+- **Formulários:** todo formulário usa **React Hook Form + Zod** (`zodResolver`) — nunca
+  `useActionState` para guardar valor de campo; no React 19 ele limpa campos não controlados ao fim
+  da `action`, inclusive em erro de validação. `CLAUDE.md` §7 é a fonte da verdade dessa regra. A
+  mutação continua via Server Action, chamada em `handleSubmit(onValid)`; erros por campo vêm de
+  `formState.errors`, estado de envio de `formState.isSubmitting`. Padrão de referência:
+  `src/app/(app)/ponto/ponto-form.tsx`.
 - **Feedback:** ver §10 (Estados de erro) para a convenção completa. Em resumo: sucesso de ação →
   `toast.success`; erro de campo/validação e erro de negócio retornado → **inline** no formulário; erro
   **inesperado** (Server Action que lança) → `toast.error` via `notifyUnexpectedError`.

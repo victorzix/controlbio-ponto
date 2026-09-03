@@ -15,6 +15,7 @@ import {
   PROJECT_OPTIONS,
   type Project,
 } from "@/lib/ponto/validation";
+import type { ClickUpJobStage, ClickUpSyncStatus } from "@/lib/ponto/data";
 import { cn } from "@/lib/utils";
 import { notifyUnexpectedError } from "@/lib/forms/notify-error";
 import { MarkdownEditor } from "./markdown-editor";
@@ -39,6 +40,17 @@ export type PontoEntryFormData = {
   description: string;
   link: string | null;
   project: Project;
+  // Estado de sincronização com o ClickUp (spec 011) — alimenta o
+  // `ClickUpSyncBadge` no card (Tarefa 16).
+  clickupTaskId: string | null;
+  clickupTaskUrl: string | null;
+  clickupSyncStatus: ClickUpSyncStatus;
+  clickupSprintSource: string | null;
+  /** Motivo da última falha de sincronização (CA-11). */
+  clickupLastError: string | null;
+  /** Etapa do job mais recente — rótulo granular do badge enquanto `pending`. */
+  clickupJobStage: ClickUpJobStage | null;
+  clickupJobMoveToReview: boolean;
 };
 
 type PontoFormProps = {
@@ -257,6 +269,16 @@ export function PontoForm({
             {errors.description.message}
           </p>
         ) : null}
+        {/*
+          Privacidade/LGPD (spec 011, §8): o aviso tem que estar "para quem
+          lança, na própria tela". Ficar só no painel de conexão da conta
+          pessoal não serve — a descrição vai para o ClickUp mesmo de quem
+          nunca abriu aquele painel.
+        */}
+        <p className="text-muted-foreground text-xs">
+          A descrição é enviada ao ClickUp e fica visível para outras pessoas do
+          workspace.
+        </p>
       </div>
 
       {/* Projeto */}

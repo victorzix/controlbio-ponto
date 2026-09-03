@@ -24,7 +24,10 @@ import { DateField } from "@/components/ui/date-field";
 import { MarkdownEditor } from "@/app/(app)/ponto/markdown-editor";
 import { cn } from "@/lib/utils";
 
-type FinalizeValues = z.infer<typeof finalizeTrackingSchema>;
+// `z.input` (não `z.infer`/output): `moveToReview` tem `.default(true)` no
+// schema, o que o torna opcional na ENTRADA (o que o form/resolver aceitam) e
+// obrigatório na SAÍDA — usar o tipo de saída aqui quebraria o resolver do RHF.
+type FinalizeValues = z.input<typeof finalizeTrackingSchema>;
 
 const timeFmt = new Intl.DateTimeFormat("pt-BR", {
   hour: "2-digit",
@@ -55,6 +58,11 @@ function buildDefaults(tracking: ActiveTracking): FinalizeValues {
         description: "",
       };
     }),
+    // Marcado por padrão só quando o projeto tem para onde mover (RF-09).
+    // Sem `doneStatus` configurado o interruptor nem aparece (ver abaixo) — e
+    // aqui o default já nasce `false`, então "escondido" e "enviado como
+    // falso" são a mesma coisa, sem lógica extra no submit.
+    moveToReview: tracking.canMoveToReview,
   };
 }
 
@@ -344,6 +352,32 @@ function FinalizeForm({
           );
         })}
       </div>
+
+      {/*
+        Privacidade/LGPD (spec 011, §8): o aviso tem que estar "para quem lança,
+        na própria tela". Uma vez só, abaixo dos blocos — vale para a descrição
+        de todos eles.
+      */}
+      <p className="text-muted-foreground text-xs">
+        A descrição é enviada ao ClickUp e fica visível para outras pessoas do
+        workspace.
+      </p>
+
+      {tracking.canMoveToReview ? (
+        <div className="border-border flex flex-col gap-1 border-t pt-3">
+          <label className="flex min-h-[44px] cursor-pointer items-center gap-3">
+            <input
+              type="checkbox"
+              className="size-4 accent-primary"
+              {...register("moveToReview")}
+            />
+            <span className="text-sm font-medium">Mover a tarefa para revisão</span>
+          </label>
+          <p className="text-muted-foreground pl-7 text-xs">
+            Desmarque se você só está parando por hoje.
+          </p>
+        </div>
+      ) : null}
 
       <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
         <Button

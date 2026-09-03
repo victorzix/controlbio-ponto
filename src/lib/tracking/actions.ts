@@ -8,6 +8,9 @@ import {
   timeTrackingSegments,
 } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/guard";
+import { initialSyncStatus, isSyncEnabled } from "@/lib/clickup/enabled";
+import { enqueuePushEntry } from "@/lib/clickup/queue";
+import { markStartedInClickUp } from "@/lib/clickup/start-progress";
 import {
   getActiveTracking,
   getOpenSegment,
@@ -93,6 +96,20 @@ export async function startTracking(
   } catch {
     // A UNIQUE(user_id) protege contra corrida entre abas.
     return { error: "Você já tem um cronômetro ativo." };
+  }
+
+  // Fire-and-forget, DEPOIS do commit: marca a tarefa "em andamento" no
+  // ClickUp já ao iniciar (spec 011). `markStartedInClickUp` nunca lança —
+  // "iniciar cronômetro" não pode esperar rede do ClickUp nem falhar por
+  // causa dela. Só no início de sessão nova (não em `resumeTracking`): RN-04
+  // já estabelece que pausar/retomar não mexe em status, e a tarefa já foi
+  // movida (ou criada) nesta mesma chamada.
+  if (isSyncEnabled()) {
+    void markStartedInClickUp({
+      userId: user.id,
+      title: parsed.data.title,
+      project: parsed.data.project,
+    });
   }
 
   return { ok: true };
@@ -234,7 +251,7 @@ export async function finalizeTracking(
     return { fieldErrors: collectFieldErrors(parsed.error.issues) };
   }
 
-  const { title, project, segments } = parsed.data;
+  const { title, project, segments, moveToReview } = parsed.data;
   const rows = segments.map((s) => ({
     userId: user.id,
     title,
@@ -243,10 +260,30 @@ export async function finalizeTracking(
     description: s.description,
     link: null,
     project,
+    clickupSyncStatus: initialSyncStatus(),
   }));
 
+  const syncOn = isSyncEnabled();
+
   await db.transaction(async (tx) => {
-    await tx.insert(registrosPonto).values(rows);
+    // Cada segmento vira um ponto e um job — na mesma transação (mesmo motivo
+    // do `createEntry`: job e ponto nascem juntos, ou nenhum dos dois nasce).
+    const created = await tx
+      .insert(registrosPonto)
+      .values(rows)
+      .returning({ id: registrosPonto.id });
+
+    if (syncOn) {
+      for (let i = 0; i < created.length; i++) {
+        await enqueuePushEntry(tx, {
+          entryId: created[i].id,
+          // Só o último segmento fecha a tarefa — a pessoa termina uma vez,
+          // não uma vez por segmento (RF-09/RN-04).
+          moveToReview: moveToReview && i === created.length - 1,
+        });
+      }
+    }
+
     // Escopado por dono: só apaga o próprio rascunho.
     await tx
       .delete(timeTrackings)

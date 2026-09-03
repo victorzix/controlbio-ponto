@@ -37,6 +37,39 @@ const optionalHourlyRate = z
   .max(100000, "Valor muito alto.")
   .optional();
 
+/**
+ * Vínculo com o membro do ClickUp (spec 011, Tarefa 14, RF-12) — **opcional**:
+ * um usuário sem vínculo simplesmente não sincroniza (RN-09), não é um erro.
+ *
+ * Aceita **string OU number** de propósito: o `<select>` do form manda o id do
+ * membro como string (ou "" para "sem vínculo"), mas o cliente já entrega esse
+ * valor TRANSFORMADO — `zodResolver` roda o parse no client antes de chamar a
+ * Server Action, então o servidor recebe `clickupUserId` já como `number`. Só
+ * aceitar `string` aqui faz esta MESMA validação (CLAUDE.md §7: "o servidor
+ * revalida o mesmo schema") rejeitar toda vez que o client já converteu — que é
+ * sempre, no fluxo real deste form.
+ */
+const optionalClickupUserId = z
+  .union([z.string(), z.number()])
+  .optional()
+  .transform((v, ctx) => {
+    if (v === undefined) return undefined;
+    if (typeof v === "number") {
+      if (!Number.isInteger(v) || v < 0) {
+        ctx.addIssue({ code: "custom", message: "Vínculo com o ClickUp inválido." });
+        return z.NEVER;
+      }
+      return v;
+    }
+    const trimmed = v.trim();
+    if (!trimmed) return undefined;
+    if (!/^\d+$/.test(trimmed)) {
+      ctx.addIssue({ code: "custom", message: "Vínculo com o ClickUp inválido." });
+      return z.NEVER;
+    }
+    return Number(trimmed);
+  });
+
 /** Schema de validação para criação de usuário. */
 export const createUserSchema = z.object({
   name: z.string().trim().min(2, "Informe o nome."),
@@ -44,6 +77,7 @@ export const createUserSchema = z.object({
   email: optionalEmailField,
   role: roleEnum,
   hourlyRate: optionalHourlyRate,
+  clickupUserId: optionalClickupUserId,
   password: z.string().min(8, "A senha deve ter ao menos 8 caracteres."),
 });
 
@@ -54,6 +88,7 @@ export const updateUserSchema = z.object({
   email: optionalEmailField,
   role: roleEnum,
   hourlyRate: optionalHourlyRate,
+  clickupUserId: optionalClickupUserId,
   password: z
     .string()
     .min(8, "A senha deve ter ao menos 8 caracteres.")

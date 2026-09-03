@@ -3,6 +3,9 @@ import { db } from "@/db";
 import { timeTrackings, timeTrackingSegments } from "@/db/schema";
 import { todayBrasiliaISO } from "@/lib/tz";
 import type { Project } from "@/lib/ponto/validation";
+import { getProjectConfig } from "@/lib/clickup/config";
+import { hasDoneStatus } from "@/lib/clickup/done-status";
+import { isSyncEnabled } from "@/lib/clickup/enabled";
 import { computeElapsedAndStatus, type TrackingStatus } from "./compute";
 
 export type { TrackingStatus };
@@ -29,6 +32,12 @@ export type ActiveTracking = {
   serverNow: string;
   /** Hoje em Brasília (YYYY-MM-DD) — teto de data no modal de finalização. */
   todayBrasilia: string;
+  /**
+   * Se o projeto tem `doneStatus` configurado (spec 011, task 17) — só então
+   * o modal de finalização mostra o interruptor "mover para revisão", já que
+   * sem status configurado não há para onde mover a tarefa.
+   */
+  canMoveToReview: boolean;
 };
 
 type SegmentRow = { id: string; startedAt: Date; endedAt: Date | null };
@@ -65,6 +74,7 @@ export async function getActiveTracking(
 
   const now = new Date();
   const { elapsedMs, status } = computeElapsedAndStatus(rows, now);
+  const projectConfig = await getProjectConfig(tracking.project);
 
   return {
     id: tracking.id,
@@ -79,6 +89,10 @@ export async function getActiveTracking(
     elapsedMs,
     serverNow: now.toISOString(),
     todayBrasilia: todayBrasiliaISO(),
+    // A chave geral vem antes da configuração do projeto: com
+    // `CLICKUP_SYNC_ENABLED=false` nada é enfileirado, então oferecer "mover a
+    // tarefa para revisão" prometeria algo que não acontece.
+    canMoveToReview: isSyncEnabled() && hasDoneStatus(projectConfig),
   };
 }
 

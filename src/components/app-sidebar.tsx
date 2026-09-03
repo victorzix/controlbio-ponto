@@ -8,6 +8,7 @@ import {
   BarChart3,
   Clock3,
   Users,
+  Plug,
   LogOut,
   Menu,
   X,
@@ -25,8 +26,11 @@ import { cn } from "@/lib/utils";
 
 type AppSidebarProps = {
   user: { name: string; username: string; email: string | null };
+  /** Rótulo "conectado como X" da conta ClickUp pessoal, ou `null` (spec 011). */
+  clickupLabel: string | null;
   canVerPonto: boolean;
   canReadUsuarios: boolean;
+  canConfigurarIntegracao: boolean;
 };
 
 type NavItem = {
@@ -54,8 +58,10 @@ const WIDTH_RAIL = "md:w-16";
  */
 export function AppSidebar({
   user,
+  clickupLabel,
   canVerPonto,
   canReadUsuarios,
+  canConfigurarIntegracao,
 }: AppSidebarProps) {
   const pathname = usePathname();
   const reduceMotion = useReducedMotion();
@@ -91,6 +97,9 @@ export function AppSidebar({
     ...(canVerPonto ? [{ href: "/ponto", label: "Ponto", icon: Clock3 }] : []),
     ...(canReadUsuarios
       ? [{ href: "/usuarios", label: "Usuários", icon: Users }]
+      : []),
+    ...(canConfigurarIntegracao
+      ? [{ href: "/integracao", label: "Integração", icon: Plug }]
       : []),
   ];
 
@@ -311,6 +320,7 @@ export function AppSidebar({
         open={contaOpen}
         onClose={() => setContaOpen(false)}
         user={user}
+        clickupLabel={clickupLabel}
       />
     </>
   );
