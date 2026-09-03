@@ -76,9 +76,13 @@ services:
       # senão o login não funciona. ⚠️ Sem HTTPS, senha/sessão trafegam em texto
       # puro — coloque um proxy TLS (Caddy/nginx) na frente assim que possível.
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
-      # Integração ClickUp (spec 011) — a app não fala com a API do ClickUp,
-      # mas as telas de configuração (admin) leem/gravam estas variáveis e o
-      # token pessoal cifrado dos usuários.
+      # Integração ClickUp (spec 011) — quem PROCESSA a fila de sincronização
+      # (criar tarefa, comentar, lançar tempo) é só o serviço `worker`, abaixo.
+      # Mas a app TAMBÉM fala com a API, direto, em dois lugares próprios: as
+      # telas de configuração do admin (`/integracao`, pickers de Space/Folder/
+      # Lista/status) e o gatilho eager de "iniciar cronômetro" (RF-21, marca a
+      # tarefa em andamento na hora, sem esperar o worker) — por isso as mesmas
+      # credenciais são passadas aqui também, não só no `worker`.
       CLICKUP_API_TOKEN: ${CLICKUP_API_TOKEN:-}
       CLICKUP_TEAM_ID: ${CLICKUP_TEAM_ID:-}
       CLICKUP_TOKEN_ENC_KEY: ${CLICKUP_TOKEN_ENC_KEY:-}

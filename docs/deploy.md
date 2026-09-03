@@ -60,8 +60,17 @@ docker compose exec db pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > backup_$(dat
 
 O serviço `worker` consome a fila `clickup_sync_jobs` e fala com a API do ClickUp
 (criar/atualizar tarefa, comentar, lançar tempo) para refletir o ponto batido no board
-da sprint. A app **nunca** fala direto com o ClickUp — ela só grava o job na mesma
-transação em que salva o ponto; quem processa é este serviço, sozinho e à parte.
+da sprint — **é o único que precisa ser confiável e observável** (retry com backoff,
+falha listada em `/integracao`). Ele nasce quando a app grava o job na mesma transação
+em que salva o ponto ou encerra o cronômetro.
+
+A **app** também fala com a API do ClickUp, direto, mas só em dois lugares cosméticos
+(melhor esforço, nunca abrem pendência no painel do admin): as telas de configuração do
+admin (`/integracao`) e o gatilho eager de "iniciar cronômetro" (RF-21 — marca a tarefa
+em andamento na hora, sem esperar o worker). Por isso o serviço `app`, e não só o
+`worker`, também recebe `CLICKUP_API_TOKEN`/`CLICKUP_TEAM_ID`/etc no
+`docker-compose.yml` — e precisa do mesmo acesso de saída à internet
+(`api.clickup.com`) que o worker, se o firewall/rede da VPS segmentar por container.
 
 - Roda a partir do estágio `tools` do `Dockerfile` — o mesmo do `migrate` (tem `tsx` e
   o código-fonte completo; o `runner` só tem o build standalone da app, sem isso).
