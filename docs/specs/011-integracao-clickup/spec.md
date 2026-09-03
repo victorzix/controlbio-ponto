@@ -321,6 +321,82 @@ são bugs a corrigir, são o comportamento pretendido desta versão.
   exigiria um parser próprio; descartado por não valer o esforço (YAGNI) para o volume
   de descrições que usam formatação.
 
+## Pendências antes de ligar a integração
+
+A revisão final da branch encontrou três defeitos que **não** foram corrigidos antes do
+push. Nenhum deles causa perda de dado, e nenhum pode acontecer enquanto
+`CLICKUP_API_TOKEN` estiver vazio (sem token a integração é inerte). Estão aqui porque
+precisam ser resolvidos **antes de a integração ser ligada para pessoas de verdade** —
+não depois.
+
+Estão em ordem de dano.
+
+### P-01 — horas podem ser lançadas duas vezes (`src/lib/ponto/actions.ts:207`)
+
+`updateEntry` decide entre `correction` e `push_entry` olhando
+`clickupSyncStatus === "synced"`. Mas `failJob` marca o registro como `failed` numa falha
+terminal **independentemente do estado anterior**. Então esta sequência lança o tempo
+duas vezes no ClickUp:
+
+1. o ponto sincroniza (`synced`, tempo lançado);
+2. a pessoa edita → job `correction` (que pula `time_entry`, por decisão de design);
+3. essa correção falha em definitivo (token trocado, projeto desabilitado, 400,
+   tentativas esgotadas) → o registro vira `failed`;
+4. a pessoa edita de novo → o código vê `failed` e enfileira `push_entry`, que **roda o
+   estágio de tempo outra vez**.
+
+É o único item aberto com efeito externo irreversível — infla as horas da pessoa no
+ClickUp, exatamente o que a limitação "correção não relança tempo" existe para impedir.
+
+**Correção (~5 linhas, sem mudança de schema):** tratar "existe job com `status='done'`
+para este registro" como sincronizado — `clickupSyncStatus === "synced" || existsDoneJob(entryId)`.
+
+### P-02 — um restart ocupado deixa até 9 pontos presos em "sincronizando" (`src/worker/clickup-sync.ts:211`)
+
+`claimJobs` marca as 10 linhas do lote como `running` de uma vez. Quando o `break` no
+topo do laço interrompe no job 2, os jobs 3–10 continuam `running` sem dono. O worker
+novo só reivindica `pending`, então esses pontos ficam em "sincronizando" — invisíveis
+para o contador de falhas e recusados pelo "reenviar" — até a recuperação de 15 minutos.
+
+Não é o Critical 1 de volta (a recuperação existe e resolve sozinha), mas torna o sintoma
+**rotineiro** a cada `docker compose restart worker` com fila cheia.
+
+**Correção:** ao sair pelo `break`, devolver as reivindicações não processadas para
+`pending` numa única `update ... where id = any(...)`. Ou reivindicar lotes menores.
+
+### P-03 — job antigo com falha polui o painel do admin para sempre (`src/lib/clickup/queue.ts`)
+
+Quando um registro `failed` é editado, um job novo é inserido e o antigo **nunca** é
+limpo: `completeJob` só toca a linha nova, e `retryEntrySync` deixa de alcançá-lo porque
+o registro já não está `failed`. Resultado: o card fica verde e `/integracao` mostra,
+indefinidamente, uma linha nomeada (dono, dia, etapa, motivo) para um ponto que chegou.
+
+Atinge justamente o propósito da observabilidade que acabou de ser construída, e engana o
+operador na primeira execução real, quando ele ainda não sabe o que é normal.
+
+**Correção (sem mudança de schema):** **reaproveitar a linha de job existente**
+(`status='pending'`, `attempts=0`, preservando `stage` e os ids de progresso) em vez de
+inserir uma segunda. É a mesma semântica do `retryJob`, e fecha de brinde o caso menor de
+editar um ponto ainda `pending` (que hoje gera dois jobs vivos, dois comentários e dois
+lançamentos de tempo).
+
+### Registrado, sem urgência
+
+- **Busca estreita perde tarefa sem vínculo em Lista não adjacente.** O alcance passou a
+  ser destino + sprint anterior + Lista do índice + backlog. Uma tarefa que exista no
+  ClickUp, **sem** vínculo no índice, planejada para uma sprint futura ou abandonada duas
+  sprints atrás, deixa de ser encontrada e é duplicada. A varredura do folder inteiro
+  encontrava — ao custo de ser ilimitada. Forma limpa: buscar no conjunto estreito e, só
+  quando estiver prestes a criar a tarefa, fazer **uma** busca no folder com teto de
+  páginas.
+- **Regra "só para frente" não cobre destino no backlog.** Ela só age quando as duas
+  janelas são conhecidas; com `source === 'backlog'` a janela de destino é nula e uma
+  tarefa viva ainda pode sair da sprint atual para o backlog. Uma condição a mais fecha.
+- **O laço do worker não é testável.** Extrair o laço para um módulo que receba
+  `{claim, run, complete, fail, shouldStop}` — deixando `clickup-sync.ts` como bootstrap
+  fino — segue o padrão que o `pipeline.ts` já usa com `PipelineDeps`, dispensa qualquer
+  guarda de ambiente de teste, e teria pego o P-02.
+
 ## 11. Referências
 
 - **Especificações relacionadas:** `003-registro-de-ponto` (o registro e o campo de link),
