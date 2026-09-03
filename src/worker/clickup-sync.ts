@@ -7,10 +7,12 @@
  * requisições HTTP e duplicaria o consumo da fila no dia em que a app rodar
  * com duas réplicas.
  *
- * É de propósito BURRO: reivindica job, chama o pipeline, grava o resultado.
- * Toda regra de negócio do ClickUp vive em `src/lib/clickup/pipeline.ts` — se
- * este arquivo cresce um `if` sobre COMPORTAMENTO do ClickUp, ele está no
- * lugar errado.
+ * É de propósito BURRO — **bootstrap e nada mais**: lê o ambiente, monta o
+ * client, liga os sinais e entrega tudo a `runWorkerLoop`. A regra de negócio do
+ * ClickUp vive em `src/lib/clickup/pipeline.ts` e o laço da fila em
+ * `src/lib/clickup/worker-loop.ts` (lá dá para testar; aqui não). Se este
+ * arquivo cresce um `if` sobre COMPORTAMENTO — do ClickUp ou da fila — ele está
+ * no lugar errado.
  *
  * Log: só id de job, etapa e código de erro. NUNCA o token (de app ou
  * pessoal) nem a descrição do ponto — é conteúdo de trabalho das pessoas
@@ -18,15 +20,22 @@
  */
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { registrosPonto, users, type ClickUpSyncJob } from "@/db/schema";
+import { registrosPonto, users } from "@/db/schema";
 import { createClickUpClient } from "@/lib/clickup/client";
 import { getProjectConfig } from "@/lib/clickup/config";
 import { decryptToken } from "@/lib/clickup/crypto";
 import { ClickUpError } from "@/lib/clickup/errors";
 import { deleteTaskLink, findTaskLink, upsertTaskLink } from "@/lib/clickup/links";
 import { runJob, type PipelineDeps, type PipelineEntry } from "@/lib/clickup/pipeline";
-import { advanceStage, claimJobs, completeJob, failJob } from "@/lib/clickup/queue";
+import {
+  advanceStage,
+  claimJobs,
+  completeJob,
+  failJob,
+  releaseJobs,
+} from "@/lib/clickup/queue";
 import type { SprintPick } from "@/lib/clickup/sprint";
+import { runWorkerLoop } from "@/lib/clickup/worker-loop";
 
 const POLL_MS = Number(process.env.CLICKUP_WORKER_POLL_MS ?? 5000);
 const MAX_ATTEMPTS = Number(process.env.CLICKUP_MAX_ATTEMPTS ?? 5);
@@ -173,62 +182,30 @@ async function main(): Promise<void> {
   };
 
   console.log("[clickup-worker] iniciado.");
-  while (!parando) {
-    let jobs: ClickUpSyncJob[];
-    try {
-      jobs = await claimJobs(BATCH);
-    } catch (err) {
-      // Banco brevemente indisponível não pode derrubar o processo: espera o
-      // próximo ciclo e tenta de novo. `claimJobs` não altera nada em caso de
-      // erro (a transação implícita do `update ... returning` não teria
-      // efeito), então não há estado parcial a limpar aqui.
+
+  await runWorkerLoop({
+    batch: BATCH,
+    pollMs: POLL_MS,
+    shouldStop: () => parando,
+    sleep,
+    claim: claimJobs,
+    run: (job, onStage) => runJob(job, deps, onStage),
+    complete: (job) => completeJob(job.id, job.entryId),
+    release: releaseJobs,
+    onClaimError: (err) =>
       console.error(
         "[clickup-worker] falha ao reivindicar jobs (banco indisponivel?), tentando no proximo ciclo.",
         err instanceof Error ? err.message : err,
+      ),
+    fail: async (job, err, stage) => {
+      // `failJob` por si só nunca lança (ver `queue.ts`).
+      const clickUpErr = toClickUpError(err);
+      console.error(
+        `[clickup-worker] job ${job.id} falhou na etapa "${stage}" (codigo ${clickUpErr.code}).`,
       );
-      await sleep(POLL_MS);
-      continue;
-    }
-
-    if (jobs.length === 0) {
-      await sleep(POLL_MS);
-      continue;
-    }
-
-    for (const job of jobs) {
-      // Encerramento gracioso, na FRONTEIRA entre jobs: o topo do `for` é tão
-      // seguro quanto a verificação entre lotes — nenhum job está no meio de
-      // uma etapa aqui. O que não se pode fazer é interromper DENTRO de um job,
-      // entre uma escrita no ClickUp e o `saveProgress` correspondente: essa é
-      // a janela que causa duplicata no retry (RN-13) — por isso o `break` está
-      // aqui e não espalhado dentro do `try`.
-      //
-      // Sem isto, um lote de 10 jobs (3 a 7 requisições cada, no teto de
-      // 90/min) pode levar ~27s e estourar a carência de parada do container,
-      // levando um SIGKILL que deixa o job preso em `running`
-      // (ver `stop_grace_period` no docker-compose.yml e a retomada de claim
-      // preso em `claimJobs`).
-      if (parando) break;
-
-      // Etapa REALMENTE alcançada — `job.stage` é a foto da reivindicação e
-      // subnotificaria o progresso no log de falha.
-      let etapaAlcancada = job.stage;
-      try {
-        await runJob(job, deps, (stage) => {
-          etapaAlcancada = stage;
-        });
-        await completeJob(job.id, job.entryId);
-      } catch (err) {
-        // Nunca derruba o laço: um job ruim não pode parar a fila. `failJob`
-        // por si só também nunca lança (ver `queue.ts`).
-        const clickUpErr = toClickUpError(err);
-        console.error(
-          `[clickup-worker] job ${job.id} falhou na etapa "${etapaAlcancada}" (codigo ${clickUpErr.code}).`,
-        );
-        await failJob(job.id, clickUpErr, MAX_ATTEMPTS);
-      }
-    }
-  }
+      await failJob(job.id, clickUpErr, MAX_ATTEMPTS);
+    },
+  });
 
   console.log("[clickup-worker] encerrado.");
 }

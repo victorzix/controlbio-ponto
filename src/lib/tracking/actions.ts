@@ -262,7 +262,6 @@ export async function finalizeTracking(
       for (let i = 0; i < created.length; i++) {
         await enqueuePushEntry(tx, {
           entryId: created[i].id,
-          kind: "push_entry",
           // Só o último segmento fecha a tarefa — a pessoa termina uma vez,
           // não uma vez por segmento (RF-09/RN-04).
           moveToReview: moveToReview && i === created.length - 1,

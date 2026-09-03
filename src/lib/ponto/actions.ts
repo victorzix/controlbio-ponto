@@ -5,7 +5,7 @@ import { db } from "@/db";
 import { registrosPonto } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/guard";
 import { initialSyncStatus, isSyncEnabled } from "@/lib/clickup/enabled";
-import { enqueuePushEntry } from "@/lib/clickup/queue";
+import { enqueueEntryEdit, enqueuePushEntry } from "@/lib/clickup/queue";
 import { createEntrySchema, updateEntrySchema } from "./validation";
 import {
   listOwnEntries,
@@ -132,7 +132,7 @@ export async function createEntry(input: unknown): Promise<PontoActionState> {
 
     if (syncOn) {
       for (const { id } of created) {
-        await enqueuePushEntry(tx, { entryId: id, kind: "push_entry" });
+        await enqueuePushEntry(tx, { entryId: id });
       }
     }
   });
@@ -186,43 +186,24 @@ export async function updateEntry(
     const found = updated[0];
     if (!found) return null;
 
-    // RN-06: um registro já sincronizado nunca é reescrito — a edição vira
-    // um comentário de correção na tarefa. Se ainda não chegou lá, tenta o
-    // envio inicial de novo (pending/failed); se nasceu com a integração
-    // desligada (`off`), não enfileira nada. A chave geral (`isSyncEnabled`)
-    // é absoluta: com a integração desligada, editar não pode reativar a
-    // sincronização de um registro nem enfileirar nada — mesma regra de
-    // `createEntry`/`duplicateEntry`/`finalizeTracking`.
+    // RN-06: um registro já sincronizado nunca é reescrito — a edição vira um
+    // comentário de correção na tarefa. Se ainda não chegou lá, é o envio
+    // inicial que volta para a fila.
     //
-    // O que decide entre correção e envio inicial é `clickupSyncStatus`, NÃO
-    // `clickupTaskId`: o id da tarefa é marcador de PROGRESSO, gravado ao fim
-    // do `resolve`, antes de existir comentário nenhum. Um job que resolveu e
-    // falhou de forma terminal no `comment` deixa o id gravado; tratar isso
-    // como "já sincronizado" enfileiraria uma `correction`, que pula o
-    // lançamento de tempo por definição — a tarefa receberia como PRIMEIRO
-    // comentário um rotulado "Correção", o tempo nunca seria lançado (RF-18,
-    // CA-16) e o registro ainda terminaria `synced`, com o badge verde
-    // escondendo tudo.
-    if (syncOn) {
-      if (found.clickupSyncStatus === "synced") {
-        await enqueuePushEntry(tx, { entryId: found.id, kind: "correction" });
-      } else if (
-        found.clickupSyncStatus === "pending" ||
-        found.clickupSyncStatus === "failed"
-      ) {
-        await enqueuePushEntry(tx, { entryId: found.id, kind: "push_entry" });
-
-        // O envio voltou para a fila: o registro é `pending` de novo — mesma
-        // verdade imediata que `retryJob` grava (RF-14). Sem isto o card
-        // continua oferecendo "reenviar", que reagendaria o job ANTIGO em
-        // paralelo com este — dois jobs vivos no mesmo ponto, dois comentários.
-        if (found.clickupSyncStatus === "failed") {
-          await tx
-            .update(registrosPonto)
-            .set({ clickupSyncStatus: "pending" })
-            .where(eq(registrosPonto.id, found.id));
-        }
-      }
+    // Quem decide entre uma coisa e outra é `planEntryEdit` (`queue.ts`), a
+    // partir do JOB do registro — não do `clickupSyncStatus` daqui, que mente
+    // depois de uma correção que falhou em definitivo (`failJob` marca o ponto
+    // como `failed` seja qual for o estado anterior, e um `push_entry` sobre um
+    // ponto já entregue lançaria o tempo de novo). `enqueueEntryEdit` também
+    // REAPROVEITA a linha do job em vez de inserir uma segunda, e cuida de tirar
+    // o registro de `failed`.
+    //
+    // Duas guardas ficam aqui: a chave geral (`isSyncEnabled`) é absoluta — com
+    // a integração desligada, editar não reativa a sincronização de nada, mesma
+    // regra de `createEntry`/`duplicateEntry`/`finalizeTracking`; e um registro
+    // que nasceu `off` continua `off`, nunca entra na fila por ter sido editado.
+    if (syncOn && found.clickupSyncStatus !== "off") {
+      await enqueueEntryEdit(tx, found.id);
     }
 
     return found;
@@ -286,7 +267,7 @@ export async function duplicateEntry(id: string): Promise<PontoActionState> {
       .returning({ id: registrosPonto.id });
 
     if (syncOn) {
-      await enqueuePushEntry(tx, { entryId: created.id, kind: "push_entry" });
+      await enqueuePushEntry(tx, { entryId: created.id });
     }
   });
 

@@ -16,7 +16,7 @@
 
 Nenhum token real do ClickUp existiu no ambiente de build. Todo o núcleo (normalização
 de título, janela de sprint, classificação de status, cifra, pipeline, fila) está
-coberto por 205 testes automatizados com um `ClickUpClient` **falso** — mas as três
+coberto por 230 testes automatizados com um `ClickUpClient` **falso** — mas as três
 coisas abaixo só podem ser confirmadas rodando este roteiro contra o `Espaço Teste` do
 workspace real, com um token de verdade:
 
@@ -29,7 +29,9 @@ workspace real, com um token de verdade:
   encerramento gracioso (CT-24 e CT-25 abaixo). O código do sinal está correto para
   Linux, mas o ambiente de desenvolvimento é Windows e não consegue entregar um sinal
   Unix de verdade a um container — só foi possível ler o código, não observar o
-  comportamento.
+  comportamento. O que o sinal **dispara** já tem teste (`worker-loop.test.ts`: o lote
+  reivindicado e não executado volta para a fila); o que falta observar é a entrega do
+  sinal em si.
 - **Se as Listas de sprint do workspace real têm `start_date`/`due_date` preenchidos**
   (`spec.md` Q-01). Sem isso confirmado, o caminho principal de escolha de sprint
   (data da Lista) pode estar sendo pouco exercitado na prática, e o parse de nome —
@@ -551,6 +553,58 @@ Trate os casos abaixo como o primeiro contato real desta feature com o ClickUp.
 | 1 | Com jobs em processamento, rodar `docker compose kill -s SIGTERM worker`. | Log mostra `[clickup-worker] SIGTERM recebido, encerrando apos o lote atual.`             |
 | 2 | Aguardar o processo terminar (`docker compose ps` mostra `worker` parado).| O lote **em andamento no momento do sinal** termina normalmente antes do processo sair — nenhuma etapa é cortada no meio (nenhuma escrita no ClickUp sem o `saveProgress`/`completeJob` correspondente). |
 | 3 | Subir o worker de novo (`docker compose start worker`) e conferir os jobs que estavam em andamento. | Nenhum comentário/tarefa/lançamento de tempo duplicado — o pipeline retomou (se algum job ficou pendente) do estágio correto. |
+| 4 | Conferir, em `/ponto`, os pontos que estavam na fila e ainda **não** tinham sido processados quando o sinal chegou (P-02). | Eles são processados **em segundos** depois de o worker voltar — não ficam presos em "sincronizando" esperando a retomada de 15 minutos. O lote reivindicado e não executado voltou para a fila no encerramento. |
+
+- **Resultado obtido:** ⬜ Passou · ⬜ Falhou
+- **Observações / evidências:**
+
+---
+
+### Grupo L — Regressões da revisão final (P-01, P-03)
+
+Os dois casos abaixo cobrem os defeitos que a revisão final da branch encontrou e que
+**só aparecem na segunda edição** de um ponto (ver `spec.md`, "Defeitos encontrados na
+revisão final"). São os mais chatos de reproduzir à mão e os mais importantes de
+verificar: o P-01 tem efeito externo **irreversível** nas horas da pessoa.
+
+#### CT-26 — Editar de novo depois de uma correção que falhou não relança tempo
+
+- **Objetivo:** confirmar o P-01 — um ponto já entregue continua gerando **correção** por
+  quantas falhas terminais passe, e o tempo nunca é lançado duas vezes.
+- **Referências:** _RN-06, RF-18; `spec.md` P-01_
+- **Pré-condição:** o funcionário de teste com **conta pessoal conectada** (para haver
+  lançamento de tempo) e um ponto já "sincronizado" cujo tempo apareça na tarefa.
+
+| # | Passo                                                                 | Resultado esperado                                                                 |
+| - | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| 1 | Na tarefa do ClickUp, anotar o **tempo total lançado** (aba de tempo).  | Ex.: 2h00 — uma única entrada, do envio original.                                        |
+| 2 | Como admin, em `/integracao`, **desativar** a configuração do projeto.  | Projeto fica inativo.                                                                     |
+| 3 | Como o funcionário, editar o ponto (mudar a descrição) e salvar.        | Modal fecha. O job de correção falha em definitivo (`CONFIG_AUSENTE` é terminal).         |
+| 4 | Aguardar o worker; recarregar `/ponto`.                                 | Badge do card mostra o estado de **falha**, com o motivo.                                 |
+| 5 | Como admin, **reativar** a configuração do projeto em `/integracao`.    | Projeto ativo de novo.                                                                    |
+| 6 | Como o funcionário, editar o ponto **outra vez** e salvar. Aguardar o worker. | Badge volta a "sincronizando" e depois a "sincronizado".                              |
+| 7 | Abrir a tarefa no ClickUp e conferir os comentários **e** o tempo lançado. | Um **novo comentário "Correção · …"** foi adicionado. **O tempo total lançado continua o mesmo do passo 1** — nenhuma segunda entrada de tempo foi criada. É este número que o P-01 dobrava. |
+
+- **Resultado obtido:** ⬜ Passou · ⬜ Falhou
+- **Observações / evidências:**
+
+---
+
+#### CT-27 — Editar um ponto com falha limpa a pendência do painel do admin
+
+- **Objetivo:** confirmar o P-03 — a edição **reaproveita** o job em vez de inserir um
+  segundo, então nenhuma falha órfã fica no painel de um ponto que chegou.
+- **Referências:** _RF-14; `spec.md` P-03_
+- **Pré-condição:** um ponto com **falha definitiva** listada em `/integracao` (o de
+  CT-16 serve: funcionário sem vínculo de membro).
+
+| # | Passo                                                                 | Resultado esperado                                                                 |
+| - | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| 1 | Como admin, em `/integracao`, anotar o contador de falhas e a linha do ponto. | Ex.: "1 envio com falha", com dono, dia, etapa e motivo.                            |
+| 2 | Corrigir a causa (em `/usuarios`, vincular o **Membro do ClickUp** do funcionário). | Salvo.                                                                          |
+| 3 | Como o funcionário, editar o ponto (qualquer campo) e salvar.            | Badge do card sai de "falhou" e volta a "sincronizando" — o botão "reenviar" desaparece.  |
+| 4 | Aguardar o worker; recarregar `/ponto` e `/integracao`.                 | Card "sincronizado", com link para a tarefa. **`/integracao` não lista mais nenhuma falha** e o contador voltou a zero — não sobrou linha órfã do job antigo. |
+| 5 | Abrir a tarefa no ClickUp.                                              | **Um** comentário e **um** lançamento de tempo (se houver conta pessoal) — não dois.     |
 
 - **Resultado obtido:** ⬜ Passou · ⬜ Falhou
 - **Observações / evidências:**
@@ -586,8 +640,11 @@ Trate os casos abaixo como o primeiro contato real desta feature com o ClickUp.
 | CT-23 | CA-20            | ⬜ Pass / Fail |            |
 | CT-24 | —                | ⬜ Pass / Fail |            |
 | CT-25 | —                | ⬜ Pass / Fail |            |
+| CT-26 | — (P-01)         | ⬜ Pass / Fail |            |
+| CT-27 | — (P-03)         | ⬜ Pass / Fail |            |
 
-- **Total:** 25 casos (23 rastreados a CA-01…CA-23 + 2 de infraestrutura do worker)
+- **Total:** 27 casos (23 rastreados a CA-01…CA-23 + 2 de infraestrutura do worker +
+  2 de regressão dos defeitos da revisão final)
 - **Passou:** <Y> · **Falhou:** <Z>
 - **Bloqueadores encontrados:** <listar bugs/tickets abertos>
 - **Conclusão:** ⬜ Liberado · ⬜ Reprovado · ⬜ Liberado com ressalvas

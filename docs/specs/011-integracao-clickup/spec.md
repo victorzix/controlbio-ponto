@@ -321,64 +321,95 @@ são bugs a corrigir, são o comportamento pretendido desta versão.
   exigiria um parser próprio; descartado por não valer o esforço (YAGNI) para o volume
   de descrições que usam formatação.
 
-## Pendências antes de ligar a integração
+## Defeitos encontrados na revisão final (corrigidos)
 
-A revisão final da branch encontrou três defeitos que **não** foram corrigidos antes do
-push. Nenhum deles causa perda de dado, e nenhum pode acontecer enquanto
-`CLICKUP_API_TOKEN` estiver vazio (sem token a integração é inerte). Estão aqui porque
-precisam ser resolvidos **antes de a integração ser ligada para pessoas de verdade** —
-não depois.
+A revisão final da branch encontrou três defeitos. Nenhum causava perda de dado, e
+nenhum podia acontecer enquanto `CLICKUP_API_TOKEN` estivesse vazio (sem token a
+integração é inerte) — mas todos os três precisavam cair **antes de a integração ser
+ligada para pessoas de verdade**. Ficam registrados porque explicam por que o código
+tem a forma que tem.
 
 Estão em ordem de dano.
 
-### P-01 — horas podem ser lançadas duas vezes (`src/lib/ponto/actions.ts:207`)
+### P-01 — horas lançadas duas vezes ✅ corrigido
 
-`updateEntry` decide entre `correction` e `push_entry` olhando
-`clickupSyncStatus === "synced"`. Mas `failJob` marca o registro como `failed` numa falha
-terminal **independentemente do estado anterior**. Então esta sequência lança o tempo
-duas vezes no ClickUp:
+`updateEntry` decidia entre `correction` e `push_entry` olhando
+`clickupSyncStatus === "synced"`. Mas `failJob` marca o registro como `failed` numa
+falha terminal **independentemente do estado anterior**. Então esta sequência lançava o
+tempo duas vezes no ClickUp:
 
 1. o ponto sincroniza (`synced`, tempo lançado);
 2. a pessoa edita → job `correction` (que pula `time_entry`, por decisão de design);
 3. essa correção falha em definitivo (token trocado, projeto desabilitado, 400,
    tentativas esgotadas) → o registro vira `failed`;
-4. a pessoa edita de novo → o código vê `failed` e enfileira `push_entry`, que **roda o
-   estágio de tempo outra vez**.
+4. a pessoa edita de novo → o código via `failed` e enfileirava `push_entry`, que **roda
+   o estágio de tempo outra vez**.
 
-É o único item aberto com efeito externo irreversível — infla as horas da pessoa no
+Era o único item com efeito externo irreversível — inflava as horas da pessoa no
 ClickUp, exatamente o que a limitação "correção não relança tempo" existe para impedir.
 
-**Correção (~5 linhas, sem mudança de schema):** tratar "existe job com `status='done'`
-para este registro" como sincronizado — `clickupSyncStatus === "synced" || existsDoneJob(entryId)`.
+**Correção:** a decisão saiu de `updateEntry` e virou `planEntryEdit`
+(`src/lib/clickup/queue.ts`), pura e testada. Quem decide não é mais o status do
+registro, e sim **`clickup_comment_id` do job** — a única marca durável de "este ponto
+já foi entregue lá", gravada ao fim do `comment` e preservada no reaproveitamento da
+linha. Um ponto já entregue continua gerando `correction` por quantas falhas terminais
+passe.
 
-### P-02 — um restart ocupado deixa até 9 pontos presos em "sincronizando" (`src/worker/clickup-sync.ts:211`)
+Não é `clickup_task_id` de propósito: aquele é marcador de progresso do `resolve`,
+gravado antes de existir comentário nenhum. Um job que resolveu e morreu no `comment`
+tem tarefa e nada mais — tratá-lo como "já entregue" faria a tarefa receber como
+PRIMEIRO comentário um rotulado "Correção", sem nunca lançar o tempo (RF-18, CA-16).
 
-`claimJobs` marca as 10 linhas do lote como `running` de uma vez. Quando o `break` no
-topo do laço interrompe no job 2, os jobs 3–10 continuam `running` sem dono. O worker
-novo só reivindica `pending`, então esses pontos ficam em "sincronizando" — invisíveis
-para o contador de falhas e recusados pelo "reenviar" — até a recuperação de 15 minutos.
+### P-02 — restart ocupado deixava até 9 pontos presos em "sincronizando" ✅ corrigido
 
-Não é o Critical 1 de volta (a recuperação existe e resolve sozinha), mas torna o sintoma
-**rotineiro** a cada `docker compose restart worker` com fila cheia.
+`claimJobs` marca as 10 linhas do lote como `running` de uma vez. Quando o `break` do
+encerramento gracioso interrompia no job 2, os jobs 3–10 continuavam `running` sem dono.
+O worker novo só reivindica `pending`, então esses pontos ficavam em "sincronizando" —
+invisíveis para o contador de falhas e recusados pelo "reenviar" — até a retomada de 15
+minutos.
 
-**Correção:** ao sair pelo `break`, devolver as reivindicações não processadas para
-`pending` numa única `update ... where id = any(...)`. Ou reivindicar lotes menores.
+Não era o Critical 1 de volta (a retomada existe e resolve sozinha), mas tornava o
+sintoma **rotineiro** a cada `docker compose restart worker` com fila cheia.
 
-### P-03 — job antigo com falha polui o painel do admin para sempre (`src/lib/clickup/queue.ts`)
+**Correção:** `releaseJobs` (`queue.ts`) devolve as reivindicações não processadas para
+`pending` numa única `update ... where id = any(...) and status = 'running'` — a guarda
+de `running` impede roubar de volta uma linha que a retomada de 15 minutos (ou outro
+worker) já reivindicou.
 
-Quando um registro `failed` é editado, um job novo é inserido e o antigo **nunca** é
-limpo: `completeJob` só toca a linha nova, e `retryEntrySync` deixa de alcançá-lo porque
-o registro já não está `failed`. Resultado: o card fica verde e `/integracao` mostra,
-indefinidamente, uma linha nomeada (dono, dia, etapa, motivo) para um ponto que chegou.
+O laço do worker foi extraído para `src/lib/clickup/worker-loop.ts`, recebendo
+`{claim, run, complete, fail, release, shouldStop, sleep}` no mesmo molde que
+`pipeline.ts` já usa com `PipelineDeps`. `src/worker/clickup-sync.ts` ficou só bootstrap.
+Isso era a terceira pendência "sem urgência" da lista abaixo e subiu para cá por um
+motivo: **o P-02 foi um defeito de laço, e passou pela revisão porque não havia teste
+possível para essa parte.** Agora há (`worker-loop.test.ts`).
 
-Atinge justamente o propósito da observabilidade que acabou de ser construída, e engana o
-operador na primeira execução real, quando ele ainda não sabe o que é normal.
+### P-03 — job antigo com falha poluía o painel do admin para sempre ✅ corrigido
 
-**Correção (sem mudança de schema):** **reaproveitar a linha de job existente**
-(`status='pending'`, `attempts=0`, preservando `stage` e os ids de progresso) em vez de
-inserir uma segunda. É a mesma semântica do `retryJob`, e fecha de brinde o caso menor de
-editar um ponto ainda `pending` (que hoje gera dois jobs vivos, dois comentários e dois
-lançamentos de tempo).
+Quando um registro `failed` era editado, um job novo era inserido e o antigo **nunca**
+era limpo: `completeJob` só tocava a linha nova, e `retryEntrySync` deixava de alcançá-lo
+porque o registro já não estava `failed`. Resultado: o card ficava verde e `/integracao`
+mostrava, indefinidamente, uma linha nomeada (dono, dia, etapa, motivo) para um ponto que
+chegou. Atingia justamente o propósito da observabilidade que acabou de ser construída, e
+enganaria o operador na primeira execução real, quando ele ainda não sabe o que é normal.
+
+**Correção:** `enqueueEntryEdit` **reaproveita a linha de job existente** em vez de
+inserir uma segunda. **Invariante nova: um job por registro** — `enqueuePushEntry` só é
+chamado por quem acabou de criar o ponto (`createEntry`, `duplicateEntry`,
+`finalizeTracking`), o único caso em que se sabe, sem consultar, que ainda não existe job.
+
+Fecha de brinde o caso menor de editar um ponto ainda `pending`, que antes gerava dois
+jobs vivos, dois comentários e dois lançamentos de tempo.
+
+### Limitação aceita junto com o P-03
+
+- **Editar um ponto enquanto o job dele está em execução pode não gerar comentário de
+  correção.** `planEntryEdit` devolve `skip` quando o job está `running`: a linha é de
+  outro processo, e mexer nela criaria duas execuções do mesmo job (ou, se inserisse uma
+  segunda linha, reintroduziria o P-03 — com o agravante de não haver como saber o `kind`
+  certo, já que o comentário pode estar sendo criado naquele instante). O job em voo
+  publica o que o `loadEntry` dele leu. A janela é o tempo de vida de um lote (até ~30 s
+  com a fila cheia), e o que se perde é texto no ClickUp — nada no controlbio, que é o
+  relatório oficial de horas (RN-11).
 
 ### Registrado, sem urgência
 
@@ -392,10 +423,6 @@ lançamentos de tempo).
 - **Regra "só para frente" não cobre destino no backlog.** Ela só age quando as duas
   janelas são conhecidas; com `source === 'backlog'` a janela de destino é nula e uma
   tarefa viva ainda pode sair da sprint atual para o backlog. Uma condição a mais fecha.
-- **O laço do worker não é testável.** Extrair o laço para um módulo que receba
-  `{claim, run, complete, fail, shouldStop}` — deixando `clickup-sync.ts` como bootstrap
-  fino — segue o padrão que o `pipeline.ts` já usa com `PipelineDeps`, dispensa qualquer
-  guarda de ambiente de teste, e teria pego o P-02.
 
 ## 11. Referências
 

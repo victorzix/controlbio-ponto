@@ -1,4 +1,4 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { db } from "@/db";
 import {
   clickupJobStage,
@@ -32,26 +32,183 @@ async function getDb(): Promise<typeof db> {
 }
 
 /**
- * Enfileira o job de sincronização do registro recém-criado.
+ * Enfileira o job do **primeiro envio** de um registro recém-criado
+ * (`createEntry`, `duplicateEntry`, `finalizeTracking`).
  *
  * Recebe a **transação** do chamador (não `db`) de propósito: o job precisa
  * nascer junto com o ponto (plan.md §2). Se o processo caísse entre salvar o
  * ponto e gravar o job em transações separadas, um crash no meio perderia a
  * sincronização silenciosamente, sem deixar rastro.
+ *
+ * Só serve para registro que **acabou de nascer** — o único caso em que se sabe,
+ * sem consultar, que ainda não existe job nenhum para ele. Edição de registro já
+ * existente vai por `enqueueEntryEdit`, que reaproveita a linha (ver a
+ * INVARIANTE lá: um job por registro).
  */
 export async function enqueuePushEntry(
   tx: Transaction,
   input: {
     entryId: string;
-    kind: "push_entry" | "correction";
     moveToReview?: boolean;
   },
 ): Promise<void> {
   await tx.insert(clickupSyncJobs).values({
-    kind: input.kind,
+    kind: "push_entry",
     entryId: input.entryId,
     moveToReview: input.moveToReview ?? false,
   });
+}
+
+/** O que fazer com a fila quando um registro já existente é editado. */
+export type EditPlan =
+  /** Registro sem job (nasceu antes da 011, ou com a integração desligada). */
+  | { action: "insert" }
+  /** Reaproveita a linha existente — `kind`/`stage` conforme o já entregue. */
+  | {
+      action: "reuse";
+      jobId: string;
+      kind: ClickUpSyncJob["kind"];
+      resetStage: boolean;
+    }
+  /** Job em execução agora: não se mexe na linha de outro processo. */
+  | { action: "skip" };
+
+/**
+ * A regra de "ponto editado" — spec 011, **P-01** e **P-03**.
+ *
+ * Pura pelo mesmo motivo de `planRetry`: é a decisão que mais dá bug (lançar
+ * hora duas vezes, comentar duas vezes, deixar job órfão poluindo o painel) e a
+ * mais barata de testar isolada.
+ *
+ * **INVARIANTE: um job por registro.** A linha é reaproveitada, nunca
+ * duplicada. Inserir uma segunda deixava a primeira órfã — `completeJob` só
+ * toca a nova e `retryEntrySync` não alcança mais a antiga (o registro já não
+ * está `failed`), então uma falha antiga ficava para sempre no painel do admin
+ * de um ponto que chegou (**P-03**). No caminho `pending` era pior: dois jobs
+ * vivos, dois comentários, dois lançamentos de tempo.
+ *
+ * **O que decide entre correção e primeiro envio é `clickup_comment_id`**, não o
+ * status do registro e não `clickup_task_id`:
+ *
+ * - o **status do registro** mente depois de uma correção que falhou em
+ *   definitivo: `failJob` marca o ponto como `failed` independentemente do
+ *   estado anterior, então um ponto já sincronizado voltava a parecer "nunca
+ *   enviado" e a edição seguinte enfileirava um `push_entry` — que **roda o
+ *   estágio de tempo outra vez** e infla as horas da pessoa no ClickUp
+ *   (**P-01**), exatamente o que a limitação "correção não relança tempo"
+ *   existe para impedir;
+ * - o **`clickup_task_id`** é marcador de progresso do `resolve`, gravado antes
+ *   de existir comentário nenhum: um job que resolveu e morreu no `comment` tem
+ *   tarefa e nada mais, e tratá-lo como "já entregue" faria a tarefa receber
+ *   como PRIMEIRO comentário um rotulado "Correção", sem nunca lançar o tempo
+ *   (RF-18, CA-16).
+ *
+ * O `clickup_comment_id` é a única marca durável de "este ponto já foi entregue
+ * lá": é gravado ao fim do `comment` e sobrevive ao reaproveitamento (a correção
+ * o sobrescreve por outro id, também não-nulo).
+ */
+export function planEntryEdit(
+  job:
+    | {
+        id: string;
+        status: ClickUpSyncJob["status"];
+        clickupCommentId: string | null;
+      }
+    | undefined,
+): EditPlan {
+  if (!job) return { action: "insert" };
+
+  // Linha reivindicada por um worker agora: ela é dele. Devolvê-la para
+  // `pending` aqui criaria duas execuções do mesmo job, e inserir uma segunda
+  // linha reintroduziria o P-03 — com o agravante de não haver como saber o
+  // `kind` certo, já que o comentário pode estar sendo criado neste instante.
+  // Consequência aceita: uma edição feita na janela em que o job está em voo
+  // pode não gerar comentário de correção (o job em execução publica o que
+  // `loadEntry` leu). Nada se perde no controlbio, que é o relatório oficial de
+  // horas (RN-11) — ver a limitação registrada na spec.
+  if (job.status === "running") return { action: "skip" };
+
+  const jaEntregue = job.clickupCommentId !== null;
+
+  return {
+    action: "reuse",
+    jobId: job.id,
+    // Já entregue → a edição é uma correção (RN-06), e a correção precisa
+    // percorrer as etapas de novo para gerar o comentário novo: `stage` volta
+    // para `resolve` (idempotente — converge para a mesma tarefa pelo índice).
+    // Sem entrega ainda → continua sendo o primeiro envio e RETOMA de onde
+    // parou (RN-13); o job releria o ponto já editado de todo jeito.
+    kind: jaEntregue ? "correction" : "push_entry",
+    resetStage: jaEntregue,
+  };
+}
+
+/**
+ * Aplica `planEntryEdit`: coloca o job do registro editado de volta na fila,
+ * reaproveitando a linha existente. Roda na **transação da edição** — pelo
+ * mesmo motivo de `enqueuePushEntry`: ou a edição e o reenfileiramento
+ * acontecem juntos, ou nenhum dos dois acontece.
+ *
+ * Também tira o registro de `failed` (para `pending`): é verdade imediata — o
+ * trabalho está na fila de novo — e é o que impede o card de continuar
+ * oferecendo "reenviar", que reagendaria o mesmo job em paralelo (RF-14).
+ * Registro `synced` **não** é rebaixado: a tarefa está lá e o badge deve
+ * continuar levando a ela enquanto a correção está em voo.
+ */
+export async function enqueueEntryEdit(
+  tx: Transaction,
+  entryId: string,
+): Promise<void> {
+  const rows = await tx
+    .select({
+      id: clickupSyncJobs.id,
+      status: clickupSyncJobs.status,
+      clickupCommentId: clickupSyncJobs.clickupCommentId,
+    })
+    .from(clickupSyncJobs)
+    .where(eq(clickupSyncJobs.entryId, entryId))
+    .orderBy(desc(clickupSyncJobs.createdAt))
+    .limit(1);
+
+  const plan = planEntryEdit(rows[0]);
+  if (plan.action === "skip") return;
+
+  if (plan.action === "insert") {
+    await tx.insert(clickupSyncJobs).values({ kind: "push_entry", entryId });
+  } else {
+    await tx
+      .update(clickupSyncJobs)
+      .set({
+        kind: plan.kind,
+        status: "pending",
+        attempts: 0,
+        nextRunAt: new Date(),
+        lastError: null,
+        ...(plan.resetStage
+          ? {
+              stage: "resolve" as const,
+              // RF-09: só quem encerra o cronômetro pedindo revisão move a
+              // tarefa. A linha reaproveitada pode carregar `move_to_review`
+              // do envio original (`finalizeTracking`), e mantê-lo faria uma
+              // simples edição fechar de novo uma tarefa que alguém reabriu.
+              // Só zera na virada para correção: num `push_entry` que ainda
+              // não entregou, o pedido original continua valendo.
+              moveToReview: false,
+            }
+          : {}),
+      })
+      .where(eq(clickupSyncJobs.id, plan.jobId));
+  }
+
+  await tx
+    .update(registrosPonto)
+    .set({ clickupSyncStatus: "pending" })
+    .where(
+      and(
+        eq(registrosPonto.id, entryId),
+        eq(registrosPonto.clickupSyncStatus, "failed"),
+      ),
+    );
 }
 
 /**
@@ -98,6 +255,44 @@ export async function claimJobs(limit: number): Promise<ClickUpSyncJob[]> {
   // Drizzle. Mapeamos explicitamente para não devolver um objeto com o shape
   // errado disfarçado de `ClickUpSyncJob`.
   return (rows as unknown as RawJobRow[]).map(mapJobRow);
+}
+
+/**
+ * Devolve para `pending` reivindicações que não vão ser executadas — spec 011,
+ * **P-02**.
+ *
+ * `claimJobs` marca o lote INTEIRO como `running` de uma vez. Quando o worker
+ * encerra no meio do lote (SIGTERM), os jobs que ainda não rodaram continuam
+ * `running` sem dono: o worker novo só reivindica `pending`, então esses pontos
+ * ficam em "sincronizando" — invisíveis para o contador de falhas do admin e
+ * recusados pelo "reenviar" da pessoa — até a retomada de 15 minutos de
+ * `claimJobs`. A retomada resolve sozinha, mas sem isto o sintoma era ROTINEIRO
+ * a cada `docker compose restart worker` com fila cheia.
+ *
+ * `and status = 'running'` na cláusula não é decoração: se a retomada de 15
+ * minutos (ou outro worker) já tiver reivindicado a linha, ela não é mais nossa
+ * para devolver.
+ *
+ * NUNCA lança: roda no caminho de encerramento, onde não há próximo ciclo para
+ * tentar de novo, e a retomada de `claimJobs` continua sendo a rede de
+ * segurança.
+ */
+export async function releaseJobs(jobIds: string[]): Promise<void> {
+  if (jobIds.length === 0) return;
+  try {
+    const db = await getDb();
+    await db
+      .update(clickupSyncJobs)
+      .set({ status: "pending" })
+      .where(
+        and(
+          inArray(clickupSyncJobs.id, jobIds),
+          eq(clickupSyncJobs.status, "running"),
+        ),
+      );
+  } catch (e) {
+    console.error("clickup: falha ao devolver jobs reivindicados para a fila", e);
+  }
 }
 
 /** Formato cru de uma linha de `clickup_sync_jobs` como o driver a devolve. */

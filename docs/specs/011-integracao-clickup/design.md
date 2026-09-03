@@ -23,15 +23,17 @@ src/lib/clickup/
   client.ts        ClickUpClient (HTTP tipado)                        — I/O
   config.ts        leitura da configuração por projeto                — banco
   queue.ts         enfileirar / reivindicar / concluir / falhar       — banco
+                   (+ planRetry e planEntryEdit, as duas regras puras)
   links.ts         índice (projeto, título) → tarefa                  — banco
   pipeline.ts      máquina de estados do envio                        — orquestra
+  worker-loop.ts   laço da fila (deps injetadas, testável)            — orquestra
   members.ts       resolução de membro do workspace                   — I/O
   validation.ts    schemas Zod (configuração, token pessoal)
   data.ts          leituras para as telas
   actions.ts       Server Actions (configurar, testar, conectar, reenviar)
 
 src/worker/
-  clickup-sync.ts  entrypoint do worker (laço + encerramento limpo)
+  clickup-sync.ts  bootstrap do worker (env, client, sinais) — sem lógica
 
 src/app/(app)/integracao/
   page.tsx                 Server Component (guarda de permissão)
@@ -383,7 +385,7 @@ prometeria algo que não acontece. Marcado → o **último** job gerado recebe
 | Origem                            | Efeito                                                                   |
 | --------------------------------- | ------------------------------------------------------------------------- |
 | `createEntry` (`ponto/actions.ts`) | 1 job `push_entry` por registro criado, na mesma transação                |
-| `updateEntry`                      | `clickup_sync_status = 'synced'` → `correction` (**RN-06**); `pending`/`failed` → `push_entry` (e o registro volta a `pending`); `off` → nada. O critério é o **status**, nunca `clickup_task_id`: esse id é marcador de progresso, gravado no fim do `resolve`, antes de existir comentário — usá-lo faria um job que morreu no `comment` virar "correção", pulando o lançamento de tempo (**RF-18**, **CA-16**) |
+| `updateEntry`                      | **Reaproveita** o job do registro (`planEntryEdit`) — nunca insere um segundo. Job com `clickup_comment_id` → `correction` e `stage` de volta a `resolve` (**RN-06**); sem comentário → segue `push_entry`, retomando o `stage` (**RN-13**); job `running` → não se toca; registro `off` → nada. O critério é o **`clickup_comment_id` do job**: nem o `clickup_sync_status` (que uma falha terminal rebaixa mesmo num ponto já entregue, e um `push_entry` depois disso relançaria o tempo), nem o `clickup_task_id` (marcador de progresso do `resolve`, gravado antes de existir comentário — usá-lo faria um job que morreu no `comment` virar "correção", pulando o lançamento de tempo, **RF-18**, **CA-16**). Registro `failed` volta a `pending` |
 | `duplicateEntry`                   | 1 job `push_entry`                                                        |
 | `deleteEntry`                      | Nada — o `ON DELETE CASCADE` remove o job pendente (**RN-07**)            |
 | `finalizeTracking`                 | N jobs `push_entry`; `move_to_review` no último quando pedido             |
@@ -402,6 +404,9 @@ Com `CLICKUP_SYNC_ENABLED=false`, nada é enfileirado e o registro nasce `off`.
 - `encryptToken`/`decryptToken` — ida e volta, chave errada, valor corrompido.
 - `computeBackoff` — a progressão e o teto de tentativas.
 - `classifyError` — cada linha da tabela §5.2.
+- `planEntryEdit` — cada estado do job na hora de editar um ponto: sem job, `running`,
+  `pending` sem comentário, `failed` sem comentário, entregue, e o caso do P-01
+  (correção que falhou em definitivo **continua** correção, para não relançar tempo).
 
 **Pipeline com cliente falso:** cada ramo de `resolve` (cria / índice / busca / adota /
 carry over / concluída→nova), o cabeçalho do comentário nos dois `kind`, o salto do
@@ -411,4 +416,11 @@ carry over / concluída→nova), o cabeçalho do comentário nos dois `kind`, o 
 afirmar que não há segunda criação de tarefa, comentário nem lançamento de tempo.
 
 **Fila:** reivindicação concorrente com `SKIP LOCKED`, backoff, transição para `failed`
-no teto de tentativas.
+no teto de tentativas, e a cláusula de `releaseJobs` (só devolve o que ainda está
+`running`).
+
+**Laço do worker (`worker-loop.ts`, deps injetadas):** encerramento no meio do lote
+devolve as reivindicações que sobraram (P-02) e não devolve nada quando a parada cai na
+fronteira; um job que falha não interrompe o lote; a etapa reportada na falha é a
+**alcançada**, não a da reivindicação; banco indisponível na reivindicação não derruba o
+processo.
