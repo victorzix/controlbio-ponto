@@ -51,10 +51,10 @@ describe("createEntrySchema", () => {
     ).toBe(false);
   });
 
-  it("recusa descrição vazia", () => {
-    expect(
-      createEntrySchema.safeParse({ ...ok, description: "   " }).success,
-    ).toBe(false);
+  it("aceita descrição vazia (não é mais obrigatória)", () => {
+    const r = createEntrySchema.safeParse({ ...ok, description: "   " });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.description).toBe("");
   });
 
   it("recusa título vazio", () => {

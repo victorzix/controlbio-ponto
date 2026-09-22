@@ -124,8 +124,9 @@ atrito e aumentar a precisão dos registros.
   **individualmente**. **Título** e **projeto** são editáveis e valem para todos os pontos gerados. O **dia**
   de cada ponto tem default = a **data do início do segmento** (em Brasília).
 - **RN-10 (criação = N pontos, atômica):** Ao salvar, **cada segmento** vira um **`registro_ponto`
-  independente** com as **mesmas regras da spec 003** (título 1–120; tempo > 0 e ≤ 24h; descrição 1–5000;
-  dia não-futuro; projeto válido; dono = sessão). A criação é **atômica** (tudo ou nada). Concluída, o
+  independente** com as **mesmas regras da spec 003** (título 1–120; tempo > 0 e ≤ 24h; descrição opcional,
+  até 5000 caracteres; dia não-futuro; projeto válido; dono = sessão). A criação é **atômica** (tudo ou
+  nada). Concluída, o
   rascunho **e** seus segmentos são **apagados**.
 - **RN-11 (arredondamento):** A duração de cada segmento é **arredondada para o minuto mais próximo**; se
   resultar em **0**, vira **1** minuto (nenhum segmento é descartado silenciosamente). O usuário pode ajustar

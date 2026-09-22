@@ -321,7 +321,7 @@ function FinalizeForm({
               </div>
 
               <div className="flex flex-col gap-2">
-                <Label htmlFor={`seg-${i}-desc`}>Descrição</Label>
+                <Label htmlFor={`seg-${i}-desc`}>Descrição (opcional)</Label>
                 <Controller
                   control={control}
                   name={`segments.${i}.description`}

@@ -37,7 +37,6 @@ const minutesField = z
 const descriptionField = z
   .string()
   .trim()
-  .min(1, "Informe a descrição.")
   .max(5000, "Descrição muito longa (máx. 5000 caracteres).");
 
 const projectField = z.enum(["dw", "labphase"]);

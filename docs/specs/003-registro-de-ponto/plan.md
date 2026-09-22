@@ -55,7 +55,7 @@ A descrição é **Markdown** guardado como texto; renderizada por um componente
 
 ## 7. Estratégia de Testes
 
-- **Unitários:** `validation` (tempo > 0 e ≤ 24h, dia não-futuro, descrição obrigatória); **renderer**
+- **Unitários:** `validation` (tempo > 0 e ≤ 24h, dia não-futuro, descrição opcional); **renderer**
   Markdown (negrito/itálico/link/lista; **segurança**: ignora HTML cru e `javascript:`).
 - **Aceitação:** `acceptance.md` (CA-01..09), incluindo o teste de injeção (CA-08) e mobile.
 

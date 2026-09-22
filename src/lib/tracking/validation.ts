@@ -23,7 +23,6 @@ const workDateField = z
 const descriptionField = z
   .string()
   .trim()
-  .min(1, "Informe a descrição.")
   .max(5000, "Descrição muito longa (máx. 5000 caracteres).");
 
 /** Iniciar: basta título + projeto (RN-02). */

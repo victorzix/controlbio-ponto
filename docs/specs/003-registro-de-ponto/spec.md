@@ -76,7 +76,8 @@ descrever a atividade, e de conferir seus próprios lançamentos.
 - **RN-01:** Tempo trabalhado é informado como **horas (0–24)** e **minutos (0–59)** e guardado como
   total de minutos. O total precisa ser **> 0** e **≤ 24h** (1440 min).
 - **RN-02:** O **dia** do registro não pode ser **no futuro**. Default = hoje.
-- **RN-03:** A descrição é **obrigatória** (1–5000 caracteres), guardada como **Markdown**.
+- **RN-03:** A descrição é **opcional** (até 5000 caracteres), guardada como **Markdown**. Deixada
+  em branco, o registro fica sem descrição — nada é renderizado no lugar.
 - **RN-04:** A formatação suportada é um subconjunto seguro de Markdown: **negrito**, **itálico**,
   `código`, **links** (apenas `http`/`https`/`mailto`) e **listas**. Nada de HTML cru.
 - **RN-05:** O registro é sempre vinculado ao **usuário autenticado** (servidor define o dono; nunca o
@@ -113,7 +114,7 @@ descrever a atividade, e de conferir seus próprios lançamentos.
 - [ ] **CA-02:** Descrição com `**negrito**` e `[link](https://...)` → exibida com negrito e link clicável.
 - [ ] **CA-03:** Tempo total 0 (0h 0min) → recusado (RN-01). Minutos 60+ ou horas 25+ → recusado.
 - [ ] **CA-04:** Dia no futuro → recusado (RN-02).
-- [ ] **CA-05:** Descrição vazia → recusada (RN-03).
+- [ ] **CA-05:** Descrição vazia → aceita, registro salvo sem descrição (RN-03).
 - [ ] **CA-06:** Usuário A não vê registros do usuário B; cada lista mostra só os próprios (RF-05).
 - [ ] **CA-07:** Admin também consegue registrar e ver os próprios registros (RF-04).
 - [ ] **CA-08:** Tentativa de injeção na descrição (ex.: `<script>` ou `[x](javascript:...)`) **não**

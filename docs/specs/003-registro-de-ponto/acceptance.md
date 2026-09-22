@@ -38,10 +38,10 @@
 | - | ----- | ------------------ |
 | 1 | Selecionar uma data futura e salvar | Recusado: "O dia não pode ser no futuro." |
 
-### CT-05 — Descrição obrigatória (CA-05 / RN-03)
+### CT-05 — Descrição opcional (CA-05 / RN-03)
 | # | Passo | Resultado esperado |
 | - | ----- | ------------------ |
-| 1 | Salvar com descrição vazia | Recusado: "Informe a descrição." |
+| 1 | Salvar com descrição vazia | Aceito: registro salvo sem descrição, nada é exibido no lugar dela no card |
 
 ### CT-06 — Isolamento por usuário (CA-06 / RF-05)
 | # | Passo | Resultado esperado |

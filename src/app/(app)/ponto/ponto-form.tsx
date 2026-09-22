@@ -238,7 +238,7 @@ export function PontoForm({
 
       {/* Descrição */}
       <div className="flex flex-col gap-2">
-        <Label htmlFor="description">Descrição</Label>
+        <Label htmlFor="description">Descrição (opcional)</Label>
         <Controller
           control={control}
           name="description"
