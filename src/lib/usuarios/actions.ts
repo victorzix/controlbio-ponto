@@ -65,8 +65,7 @@ export async function createUser(input: unknown): Promise<ActionState> {
     return { fieldErrors: collectFieldErrors(parsed.error.issues) };
   }
 
-  const { name, username, email, role, password, hourlyRate, clickupUserId } =
-    parsed.data;
+  const { name, username, email, role, password, hourlyRate } = parsed.data;
   const emailValue = email && email.length > 0 ? email : null;
   const hourlyRateCents =
     hourlyRate != null ? Math.round(hourlyRate * 100) : null;
@@ -104,8 +103,6 @@ export async function createUser(input: unknown): Promise<ActionState> {
       email: emailValue,
       role,
       hourlyRateCents,
-      // Vínculo com o ClickUp (RF-12) — opcional, `null` quando não vinculado (RN-09).
-      clickupUserId: clickupUserId ?? null,
       passwordHash,
     });
   } catch (err) {
@@ -135,8 +132,7 @@ export async function updateUser(
     return { fieldErrors: collectFieldErrors(parsed.error.issues) };
   }
 
-  const { name, username, email, role, password, hourlyRate, clickupUserId } =
-    parsed.data;
+  const { name, username, email, role, password, hourlyRate } = parsed.data;
   const emailValue = email && email.length > 0 ? email : null;
   const hourlyRateCents =
     hourlyRate != null ? Math.round(hourlyRate * 100) : null;
@@ -171,8 +167,6 @@ export async function updateUser(
     username,
     email: emailValue,
     hourlyRateCents,
-    // Vínculo com o ClickUp (RF-12) — opcional, `null` quando não vinculado (RN-09).
-    clickupUserId: clickupUserId ?? null,
   };
 
   // RN-05: não altera o papel se for a própria conta

@@ -1,1 +1,0 @@
-ALTER TABLE "registros_ponto" ADD COLUMN "clickup_sprint_source" varchar(16);

@@ -11,8 +11,6 @@ export type UserListItem = {
   email: string | null;
   role: UserRole;
   hourlyRateCents: number | null;
-  /** Vínculo com o membro do ClickUp (spec 011, RF-12) — `null` = sem vínculo (RN-09). */
-  clickupUserId: number | null;
   active: boolean;
   createdAt: Date;
 };
@@ -25,8 +23,6 @@ export type UserEditData = {
   email: string | null;
   role: UserRole;
   hourlyRateCents: number | null;
-  /** Vínculo com o membro do ClickUp (spec 011, RF-12) — `null` = sem vínculo (RN-09). */
-  clickupUserId: number | null;
   active: boolean;
 };
 
@@ -42,7 +38,6 @@ export async function listUsers(q?: string): Promise<UserListItem[]> {
     email: users.email,
     role: users.role,
     hourlyRateCents: users.hourlyRateCents,
-    clickupUserId: users.clickupUserId,
     active: users.active,
     createdAt: users.createdAt,
   };
@@ -78,7 +73,6 @@ export async function getUserById(id: string): Promise<UserEditData | null> {
       email: users.email,
       role: users.role,
       hourlyRateCents: users.hourlyRateCents,
-      clickupUserId: users.clickupUserId,
       active: users.active,
     })
     .from(users)
